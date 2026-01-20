@@ -17,6 +17,15 @@ export default {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },
+            colors: {
+                'corp': {
+                    orange: '#FF5501', // Color primario / Acción / Highlight
+                    blue: '#00408F',   // Color institucional / Header / Sidebar
+                    gray: '#BBBBBB',   // Bordes / Detalles neutros
+                    white: '#FFFFFF',  // Blanco puro
+                    graydark: '#333333', // Texto oscuro / Detalles
+                }
+            },
         },
     },
 

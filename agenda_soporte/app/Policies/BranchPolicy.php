@@ -4,28 +4,48 @@ namespace App\Policies;
 
 use App\Models\Branch;
 use App\Models\User;
-use Illuminate\Auth\Access\Response;
+use Illuminate\Auth\Access\HandlesAuthorization;
 
 class BranchPolicy
 {
+    use HandlesAuthorization;
+
     /**
-     * Determine whether the user can create models.
+     *  Para Nivel 1
      */
-    public function create(User $user): bool
+    public function before(User $user, $ability)
     {
-        // 1. NIVEL 1: Admin Global (Pasa siempre)
         if ($user->is_global_admin || in_array($user->global_role, ['gerente', 'supervisor', 'admin'])) {
             return true;
         }
-
-        // 2. NIVEL 2: Dueño del Equipo Actual (Pasa)
-        if ($user->id === $user->currentTeam->user_id) {
-            return true;
-        }
-
-        // 3. NIVEL 3: Ingenieros / Miembros (BLOQUEADO)
-        return false;
     }
 
-    // ... Puedes dejar los otros métodos vacíos o con return false por ahora
+    public function viewAny(User $user): bool
+    {
+        return true;
+    }
+
+    public function view(User $user, Branch $branch): bool
+    {
+        // Usamos la política de la región padre para decidir
+        // Si puedes ver la región, puedes ver la sucursal.
+        return $user->can('view', $branch->region);
+    }
+
+    public function create(User $user): bool
+    {
+        // Nivel 2: Coordinador puede crear en su equipo
+        return $user->id === $user->currentTeam->user_id;
+    }
+
+    public function update(User $user, Branch $branch): bool
+    {
+        // Nivel 2: Solo el dueño del equipo al que pertenece la sucursal
+        return $user->id === $branch->region->team->user_id;
+    }
+
+    public function delete(User $user, Branch $branch): bool
+    {
+        return $user->id === $branch->region->team->user_id;
+    }
 }

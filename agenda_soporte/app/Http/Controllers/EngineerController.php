@@ -32,42 +32,74 @@ class EngineerController extends Controller
         abort(403, 'ACCESO DENEGADO: Solo Coordinadores y Gerentes pueden gestionar ingenieros.');
     }
 
-    public function index(Request $request)
-    {
-        $currentUser = $request->user();
-        $this->authorizeManager($currentUser); // 👈 CANDADO
+  public function index(Request $request)
+{
+    $currentUser = $request->user();
+    $this->authorizeManager($currentUser); // 👈 CANDADO
+    
+    $search = $request->input('search');
 
-        $query = User::query()
-            ->with(['profile', 'assignedRegions'])
-            ->whereHas('profile')
-            ->whereNull('global_role');
+    $query = User::query()
+        ->with(['profile', 'assignedRegions', 'currentTeam:id,name'])
+        ->whereHas('profile')
+        ->whereNull('global_role');
 
-        if ($currentUser->global_role) {
-            // Admin ve todo
-        } else {
-            // Coordinador ve solo su equipo
-            $query->whereHas('teams', function ($q) use ($currentUser) {
-                $q->where('teams.id', $currentUser->current_team_id);
-            });
-        }
-
-        $engineers = $query->latest()->get()->map(function ($user) {
-            $userTeam = $user->currentTeam; 
-            return [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'phone' => $user->profile?->phone1 ?? 'N/A',
-                'code' => $user->profile?->employee_code ?? 'N/A',
-                'status' => $user->profile?->status ?? 'active',
-                'team_name' => $userTeam?->name ?? 'Sin Asignar',
-                'primary_region' => $user->assignedRegions->first(fn($r) => $r->pivot->assignment_type === 'primary')?->name ?? 'Sin Asignar',
-                'support_regions' => $user->assignedRegions->filter(fn($r) => $r->pivot->assignment_type === 'support')->pluck('name')->join(', '),
-            ];
+    if ($currentUser->global_role) {
+        // Admin ve todo
+    } else {
+        // Coordinador ve solo su equipo
+        $query->whereHas('teams', function ($q) use ($currentUser) {
+            $q->where('teams.id', $currentUser->current_team_id);
         });
-
-        return Inertia::render('Engineers/Index', ['engineers' => $engineers]);
     }
+
+    // 🔍 BÚSQUEDA
+    $query->when($search, function ($q, $search) {
+        $q->where(function ($subQ) use ($search) {
+            $subQ->where('name', 'like', "%{$search}%")
+                 ->orWhere('email', 'like', "%{$search}%")
+                 // Buscar por teléfono en profile
+                 ->orWhereHas('profile', function($p) use ($search) {
+                     $p->where('phone1', 'like', "%{$search}%")
+                       ->orWhere('employee_code', 'like', "%{$search}%");
+                 })
+                 // Buscar por región asignada
+                 ->orWhereHas('assignedRegions', function($r) use ($search) {
+                     $r->where('name', 'like', "%{$search}%");
+                 })
+                 // Buscar por equipo/compañía
+                 ->orWhereHas('currentTeam', function($t) use ($search) {
+                     $t->where('name', 'like', "%{$search}%");
+                 });
+        });
+    });
+
+    // 📄 PAGINACIÓN (en lugar de get())
+    $engineers = $query->latest()
+        ->paginate(10)
+        ->withQueryString();
+
+    // Transformar la colección paginada
+    $engineers->getCollection()->transform(function ($user) {
+        $userTeam = $user->currentTeam; 
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->profile?->phone1 ?? 'N/A',
+            'code' => $user->profile?->employee_code ?? 'N/A',
+            'status' => $user->profile?->status ?? 'active',
+            'team_name' => $userTeam?->name ?? 'Sin Asignar',
+            'primary_region' => $user->assignedRegions->first(fn($r) => $r->pivot->assignment_type === 'primary')?->name ?? 'Sin Asignar',
+            'support_regions' => $user->assignedRegions->filter(fn($r) => $r->pivot->assignment_type === 'support')->pluck('name')->join(', '),
+        ];
+    });
+
+    return Inertia::render('Engineers/Index', [
+        'engineers' => $engineers,
+        'filters' => $request->only(['search']),
+    ]);
+}
 
     public function create(Request $request)
     {

@@ -8,7 +8,9 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import SectionTitle from '@/Components/SectionTitle.vue';
 
-// Recibimos las regiones filtradas por el controlador y la posible pre-selección
+// Definimos la clase estándar para elementos que NO son componentes (Select y Textarea)
+const inputClass = "border-gray-300 bg-white text-gray-900 focus:border-[#00408F] focus:ring-[#00408F] rounded-md shadow-sm";
+
 const props = defineProps({
     regions: Array,
     preselectedRegionId: [String, Number],
@@ -59,12 +61,16 @@ const submit = () => {
                                 <select
                                     id="region_id"
                                     v-model="form.region_id"
-                                    class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 block w-full"
+                                    :class="[inputClass, 'mt-1 block w-full']"
                                     required
                                 >
                                     <option value="" disabled>-- Selecciona una región --</option>
-                                    <option v-for="region in regions" :key="region.id" :value="region.id">
-                                        {{ region.name }} <span v-if="region.code">({{ region.code }})</span>
+                                    <option 
+                                        v-for="region in regions" 
+                                        :key="region.id" 
+                                        :value="region.id"
+                                    >
+                                        {{ region.name }}
                                     </option>
                                 </select>
                                 <InputError :message="form.errors.region_id" class="mt-2" />
@@ -148,7 +154,7 @@ const submit = () => {
                                     v-model="form.latitude"
                                     type="number"
                                     step="any"
-                                    class="mt-1 block w-full bg-gray-50"
+                                    class="mt-1 block w-full"
                                     placeholder="22.1746683"
                                 />
                                 <InputError :message="form.errors.latitude" class="mt-2" />
@@ -161,7 +167,7 @@ const submit = () => {
                                     v-model="form.longitude"
                                     type="number"
                                     step="any"
-                                    class="mt-1 block w-full bg-gray-50"
+                                    class="mt-1 block w-full"
                                     placeholder="-100.993506"
                                 />
                                 <InputError :message="form.errors.longitude" class="mt-2" />
@@ -173,7 +179,7 @@ const submit = () => {
                                     id="address"
                                     v-model="form.address"
                                     rows="3"
-                                    class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm mt-1 block w-full"
+                                    :class="[inputClass, 'mt-1 block w-full']"
                                     placeholder="Calle, Número, Colonia..."
                                 ></textarea>
                                 <InputError :message="form.errors.address" class="mt-2" />

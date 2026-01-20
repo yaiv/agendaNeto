@@ -7,97 +7,138 @@ use App\Http\Requests\Admin\StoreCompanyRequest;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 
 class CompanyController extends Controller
 {
-
     public function index()
-{
-    return Inertia::render('Admin/Companies/Index', [
-        'companies' => Team::query()
-            ->with('owner:id,name,email,profile_photo_path') // Traemos datos del dueño
-            ->withCount('regions') // Contamos las regiones automáticamente
-            ->withCount('users') // Opcional: Contamos miembros
-            ->latest()
-            ->get()
-    ]);
-}
+    {
+        return Inertia::render('Admin/Companies/Index', [
+            'companies' => Team::query()
+                ->with('owner:id,name,email,profile_photo_path')
+                ->withCount('regions')
+                ->latest()
+                ->get()
+        ]);
+    }
 
     public function create()
     {
         return Inertia::render('Admin/Companies/Create', [
-        // Enviamos la lista de candidatos a la vista.
-        // OJO: Aquí podrías filtrar users que NO sean admins globales si quisieras.
-        'potentialCoordinators' => User::select('id', 'name', 'email')
-            ->orderBy('name')
-            ->get()
-    ]);
+            // Filtramos para no mostrar al mismo admin global en la lista, solo usuarios elegibles
+            'potentialCoordinators' => User::select('id', 'name', 'email')
+                ->where('id', '!=', auth()->id()) // Excluirse a sí mismo
+                ->orderBy('name')
+                ->get()
+        ]);
     }
 
     public function store(StoreCompanyRequest $request)
     {
-        // 1. Iniciamos la transacción para integridad total
         DB::transaction(function () use ($request) {
             
-            // A. Determinar el Dueño (Team Owner)
-            // Si el request trae un 'owner_id' (ej. un Coordinador pre-seleccionado), úsalo.
-            // Si no, el Admin Global (tú) asume la propiedad temporalmente.
+            // A. Determinar el Dueño
+            $user = $request->user();
             $owner = $request->filled('owner_id') 
                 ? User::find($request->owner_id) 
-                : $request->user();
+                : $user;
 
             // B. Crear la Compañía (Team)
-            // forceCreate evita protecciones de mass-assignment si es necesario,
-            // pero con Team::create y fillable configurado es suficiente.
+            // Al poner 'user_id' => $owner->id, Jetstream ya sabe que él es el dueño.
             $team = Team::forceCreate([
                 'user_id' => $owner->id,
                 'name' => $request->name,
-                'personal_team' => false, // Es una compañía corporativa, no personal
+                'personal_team' => false,
             ]);
 
-            // C. Si el Admin NO es el dueño, agregamos al Admin al equipo
-            // para garantizar que no pierda acceso inmediato (aunque sea Global Admin).
-if ($owner->id !== $request->user()->id) {
-    $owner->forceFill([
-        'current_team_id' => $team->id,
-    ])->save();
+            // C. Lógica de Asignación (CORREGIDA)
+            
+            // Si asignaste a OTRO usuario como dueño (Coordinador):
+            if ($owner->id !== $user->id) {
+                // 1. Forzamos que el Coordinador "entre" a esta compañía la próxima vez que se loguee
+                $owner->forceFill([
+                    'current_team_id' => $team->id,
+                ])->save();
 
-}
-
-$team->users()->attach(
-        $owner, 
-        ['role' => 'admin'] 
-    );
-
-            // D. Crear las Regiones (Batch Insert)
-            // Solo si vienen en el request
-            if ($request->has('regions')) {
-                // Preparamos el array para createMany
-                // createMany maneja automáticamente el 'team_id' gracias a la relación
-                $team->regions()->createMany($request->regions);
+                // 2. (OPCIONAL) ¿Quieres que TÚ (Admin Global) quedes como miembro "admin" del equipo?
+                // Esto te permite ver el equipo en tu selector de equipos dropdown.
+                // Si no lo haces, solo podrás acceder vía tus permisos globales, no el dropdown.
+                // $team->users()->attach($user, ['role' => 'admin']); 
             }
+            
+            // ❌ BORRADO: $team->users()->attach($owner...); 
+            // El dueño NUNCA va en la tabla pivote team_user en Jetstream estándar.
 
-            // Opcional: Disparar evento de "Nueva Compañía Corporativa Creada"
-            // CompanyCreated::dispatch($team);
+            // D. Crear las Regiones
+            if ($request->has('regions')) {
+                // Aseguramos que los nombres de regiones vengan limpios
+                $regionsData = collect($request->regions)->map(function ($region) {
+                    return ['name' => $region['name']]; // Asegura estructura correcta
+                })->toArray();
+                
+                $team->regions()->createMany($regionsData);
+            }
         });
 
-        // 2. Redirección con Feedback
         return redirect()->route('admin.companies.index')
-            ->with('flash.banner', 'Compañía y estructura regional creadas correctamente.')
-            ->with('flash.bannerStyle', 'success');
+            ->with('flash', [
+                'banner' => 'Compañía creada. El coordinador asignado ahora es el dueño.',
+                'bannerStyle' => 'success'
+            ]);
     }
 
-    public function show(Team $company)
+
+public function show(Team $company)
 {
-    // Cargamos la relación de regiones y, para cada región, contamos sus sucursales
-    $company->load(['owner', 'regions' => function ($query) {
-        $query->withCount('branches'); // Para saber si la región está vacía u operativa
-    }]);
+    // Carga ansiosa (Eager Loading) de las relaciones definidas en tu modelo
+    $company->load(['regions.branches']); 
+    
+    // O si solo necesitas el conteo como tenías antes:
+    $company->loadCount('regions');
 
     return Inertia::render('Admin/Companies/Show', [
         'company' => $company
     ]);
 }
+
+/**
+     * Elimina la compañía y su estructura.
+     */
+public function destroy(Team $company)
+    {
+        $user = auth()->user();
+
+        // 🛡️ BLINDAJE CRÍTICO: ID 8 es Corporativo Global
+        if ($company->id === 8) { 
+            return back()->with('flash', [
+                'banner' => '⛔ ACCIÓN DENEGADA: El "Corporativo Global" es el núcleo del sistema y no puede ser eliminado.',
+                'bannerStyle' => 'danger'
+            ]);
+        }
+
+        // 🛡️ BLINDAJE DE SESIÓN: No borrar equipo actual
+        if ($user->current_team_id === $company->id) {
+            return back()->with('flash', [
+                'banner' => '⚠ No puedes eliminar la compañía activa. Cambia de equipo primero.',
+                'bannerStyle' => 'danger'
+            ]);
+        }
+
+        try {
+            $company->delete();
+
+            return redirect()->route('admin.companies.index')
+                ->with('flash', [
+                    'banner' => 'Compañía eliminada correctamente.',
+                    'bannerStyle' => 'success'
+                ]);
+
+        } catch (\Exception $e) {
+            return back()->with('flash', [
+                'banner' => 'Error al eliminar: ' . $e->getMessage(),
+                'bannerStyle' => 'danger'
+            ]);
+        }
+    }
+
 }
