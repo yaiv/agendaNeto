@@ -125,61 +125,77 @@ class EngineerController extends Controller
         ]);
     }
 
-    public function store(Request $request)
-    {
-        $currentUser = $request->user();
-        $this->authorizeManager($currentUser); // 👈 CANDADO
-        $isGlobalAdmin = $currentUser->isGlobalAdmin();
+   public function store(Request $request)
+{
+    $currentUser = $request->user();
+    $this->authorizeManager($currentUser);
+    $isGlobalAdmin = $currentUser->isGlobalAdmin();
 
-        $targetTeamId = $isGlobalAdmin ? $request->input('team_id') : $currentUser->current_team_id;
+    $targetTeamId = $isGlobalAdmin ? $request->input('team_id') : $currentUser->current_team_id;
 
-        if (!$targetTeamId) {
-            abort(403, 'Error: No se ha definido un equipo.');
-        }
+    if (!$targetTeamId) {
+        abort(403, 'Error: No se ha definido un equipo.');
+    }
 
-        $validated = $request->validate([
-            'team_id' => $isGlobalAdmin ? ['required', 'exists:teams,id'] : ['nullable'],
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users'],
-            'password' => ['required', 'string', 'min:8'],
-            'employee_code' => ['required', 'string', 'max:20', 'unique:profiles'],
-            'phone1' => ['required', 'string', 'max:20'],
-            'primary_region_id' => ['required', 'exists:regions,id'],
-            'support_region_ids' => ['array', 'nullable'],
-            'support_region_ids.*' => ['exists:regions,id'],
+    $validated = $request->validate([
+        'team_id' => $isGlobalAdmin ? ['required', 'exists:teams,id'] : ['nullable'],
+        'name' => ['required', 'string', 'max:255'],
+        'email' => ['required', 'email', 'max:255', 'unique:users'],
+        'password' => ['required', 'string', 'min:8'],
+        'employee_code' => ['required', 'string', 'max:20', 'unique:profiles'],
+        'phone1' => ['required', 'string', 'max:20'],
+        'primary_region_id' => ['required', 'exists:regions,id'],
+        'support_region_ids' => ['array', 'nullable'],
+        'support_region_ids.*' => ['exists:regions,id'],
+    ]);
+
+    // 🛡️ VALIDACIÓN: La región primaria debe pertenecer al equipo
+    $primaryRegion = Region::find($validated['primary_region_id']);
+    
+    if ($primaryRegion->team_id != $targetTeamId) {
+        return back()->withErrors([
+            'primary_region_id' => 'La región principal debe pertenecer a la compañía seleccionada.'
+        ])->withInput();
+    }
+    // ⚠️ Las regiones de apoyo NO se validan (pueden ser de otras compañías)
+
+    DB::transaction(function () use ($validated, $targetTeamId) {
+        $user = User::create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
+            'current_team_id' => $targetTeamId,
         ]);
 
-        DB::transaction(function () use ($validated, $targetTeamId) {
-            $user = User::create([
-                'name' => $validated['name'],
-                'email' => $validated['email'],
-                'password' => Hash::make($validated['password']),
-                'current_team_id' => $targetTeamId,
-            ]);
+        $user->profile()->create([
+            'employee_code' => $validated['employee_code'],
+            'phone1' => $validated['phone1'],
+            'status' => 'active',
+        ]);
 
-            $user->profile()->create([
-                'employee_code' => $validated['employee_code'],
-                'phone1' => $validated['phone1'],
-                'status' => 'active',
-            ]);
+        $team = Team::find($targetTeamId);
+        $team->users()->attach($user, ['role' => 'member']);
 
-            $team = Team::find($targetTeamId);
-            $team->users()->attach($user, ['role' => 'member']);
+        $user->assignedRegions()->attach($validated['primary_region_id'], [
+            'assignment_type' => 'primary'
+        ]);
 
-            $user->assignedRegions()->attach($validated['primary_region_id'], ['assignment_type' => 'primary']);
-
-            if (!empty($validated['support_region_ids'])) {
-                $supportIds = collect($validated['support_region_ids'])
-                    ->reject(fn($id) => $id == $validated['primary_region_id'])
-                    ->unique();
-                foreach ($supportIds as $regionId) {
-                    $user->assignedRegions()->attach($regionId, ['assignment_type' => 'support']);
-                }
+        if (!empty($validated['support_region_ids'])) {
+            $supportIds = collect($validated['support_region_ids'])
+                ->reject(fn($id) => $id == $validated['primary_region_id'])
+                ->unique();
+            
+            foreach ($supportIds as $regionId) {
+                $user->assignedRegions()->attach($regionId, [
+                    'assignment_type' => 'support'
+                ]);
             }
-        });
+        }
+    });
 
-        return redirect()->route('engineers.index')->with('flash.banner', 'Ingeniero creado correctamente.');
-    }
+    return redirect()->route('engineers.index')
+        ->with('flash.banner', 'Ingeniero creado correctamente.');
+}
 
   public function edit(Request $request, User $engineer)
     {
@@ -247,92 +263,95 @@ class EngineerController extends Controller
         ]);
     }
 
- public function update(Request $request, User $engineer)
-    {
-        $currentUser = $request->user();
-        $this->authorizeManager($currentUser);
-        $isGlobalAdmin = $currentUser->isGlobalAdmin();
+public function update(Request $request, User $engineer)
+{
+    $currentUser = $request->user();
+    $this->authorizeManager($currentUser);
+    $isGlobalAdmin = $currentUser->isGlobalAdmin();
 
-        if (!$isGlobalAdmin && $engineer->current_team_id !== $currentUser->current_team_id) {
-            abort(403, 'No autorizado.');
-        }
+    if (!$isGlobalAdmin && $engineer->current_team_id !== $currentUser->current_team_id) {
+        abort(403, 'No autorizado.');
+    }
 
-        $validated = $request->validate([
-            'team_id' => $isGlobalAdmin ? ['required', 'exists:teams,id'] : ['nullable'],
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email,'.$engineer->id],
-            'employee_code' => ['required', 'string', 'max:20', 'unique:profiles,employee_code,'.($engineer->profile->id ?? 'null')],
-            'phone1' => ['required', 'string', 'max:20'],
-            'primary_region_id' => ['required', 'exists:regions,id'],
-            'support_region_ids' => ['array', 'nullable'],
-            'status' => ['required', 'in:active,inactive'],
+    $validated = $request->validate([
+        'team_id' => $isGlobalAdmin ? ['required', 'exists:teams,id'] : ['nullable'],
+        'name' => ['required', 'string', 'max:255'],
+        'email' => ['required', 'email', 'max:255', 'unique:users,email,'.$engineer->id],
+        'employee_code' => ['required', 'string', 'max:20', 'unique:profiles,employee_code,'.($engineer->profile->id ?? 'null')],
+        'phone1' => ['required', 'string', 'max:20'],
+        'primary_region_id' => ['required', 'exists:regions,id'],
+        'support_region_ids' => ['array', 'nullable'],
+        'support_region_ids.*' => ['exists:regions,id'], // ✅ Agregar validación individual
+        'status' => ['required', 'in:active,inactive'],
+    ]);
+
+    // 🛡️ VALIDACIÓN: Solo la región primaria debe pertenecer al equipo
+    $targetTeamId = $validated['team_id'] ?? $engineer->current_team_id;
+    $primaryRegion = Region::find($validated['primary_region_id']);
+    
+    if ($primaryRegion->team_id != $targetTeamId) {
+        return back()->withErrors([
+            'primary_region_id' => 'La región principal debe pertenecer a la compañía del ingeniero.'
+        ])->withInput();
+    }
+    // ⚠️ Las regiones de apoyo NO se validan porque pueden ser de otras compañías
+
+    DB::transaction(function () use ($validated, $engineer, $isGlobalAdmin, $targetTeamId) {
+        // 1. Actualizar Datos Básicos
+        $engineer->update([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
         ]);
 
-        DB::transaction(function () use ($validated, $engineer, $isGlobalAdmin) {
-            // 1. Actualizar Datos Básicos
-            $engineer->update([
-                'name' => $validated['name'],
-                'email' => $validated['email'],
-            ]);
-
-            // 2. CAMBIO DE EQUIPO (Solo Admin)
-            // Lógica blindada anti-duplicados
-            if ($isGlobalAdmin && $validated['team_id'] != $engineer->current_team_id) {
-                
-                // A. Si tenía un equipo anterior válido, lo sacamos
-                if ($engineer->current_team_id) {
-                    $oldTeam = Team::find($engineer->current_team_id);
-                    if($oldTeam) $oldTeam->users()->detach($engineer->id);
-                }
-
-                // B. Actualizamos el puntero en la tabla users
-                $engineer->current_team_id = $validated['team_id'];
-                $engineer->save();
-
-                // C. Lo metemos al nuevo equipo (SOLO SI NO ESTÁ YA ADENTRO)
-                $newTeam = Team::find($validated['team_id']);
-                
-                // 👇 ESTA ES LA PROTECCIÓN CONTRA EL ERROR 500
-                if (!$newTeam->users()->where('user_id', $engineer->id)->exists()) {
-                    $newTeam->users()->attach($engineer, ['role' => 'member']);
+        // 2. CAMBIO DE EQUIPO (Solo Admin)
+        if ($isGlobalAdmin && $targetTeamId != $engineer->current_team_id) {
+            // Detach del equipo anterior
+            if ($engineer->current_team_id) {
+                $oldTeam = Team::find($engineer->current_team_id);
+                if ($oldTeam) {
+                    $oldTeam->users()->detach($engineer->id);
                 }
             }
-            // Parche de seguridad: Si current_team_id era null pero el usuario ya estaba en el equipo
-            elseif ($isGlobalAdmin && is_null($engineer->current_team_id)) {
-                 $engineer->current_team_id = $validated['team_id'];
-                 $engineer->save();
+
+            // Actualizar el team_id
+            $engineer->update(['current_team_id' => $targetTeamId]);
+
+            // Attach al nuevo equipo
+            $newTeam = Team::find($targetTeamId);
+            if (!$newTeam->users()->where('user_id', $engineer->id)->exists()) {
+                $newTeam->users()->attach($engineer, ['role' => 'member']);
             }
+        }
 
-            // 3. Actualizar Perfil
-            $engineer->profile()->updateOrCreate(
-                ['user_id' => $engineer->id],
-                [
-                    'employee_code' => $validated['employee_code'],
-                    'phone1' => $validated['phone1'],
-                    'status' => $validated['status'],
-                ]
-            );
+        // 3. Actualizar Perfil
+        $engineer->profile()->updateOrCreate(
+            ['user_id' => $engineer->id],
+            [
+                'employee_code' => $validated['employee_code'],
+                'phone1' => $validated['phone1'],
+                'status' => $validated['status'],
+            ]
+        );
 
-            // 4. Sincronizar Regiones
-            $engineer->assignedRegions()->detach();
-
-            $engineer->assignedRegions()->attach($validated['primary_region_id'], [
-                'assignment_type' => 'primary'
-            ]);
-
-            if (!empty($validated['support_region_ids'])) {
-                $supportIds = collect($validated['support_region_ids'])
-                    ->reject(fn($id) => $id == $validated['primary_region_id'])
-                    ->unique();
-                
-                foreach ($supportIds as $regionId) {
-                    $engineer->assignedRegions()->attach($regionId, [
-                        'assignment_type' => 'support'
-                    ]);
+        // 4. Sincronizar Regiones (OPTIMIZADO con sync)
+        $syncData = [];
+        
+        // Región primaria
+        $syncData[$validated['primary_region_id']] = ['assignment_type' => 'primary'];
+        
+        // Regiones de apoyo (pueden ser de cualquier compañía)
+        if (!empty($validated['support_region_ids'])) {
+            foreach ($validated['support_region_ids'] as $regionId) {
+                if ($regionId != $validated['primary_region_id']) {
+                    $syncData[$regionId] = ['assignment_type' => 'support'];
                 }
             }
-        });
+        }
+        
+        $engineer->assignedRegions()->sync($syncData);
+    });
 
-        return redirect()->route('engineers.index')->with('flash.banner', 'Ingeniero actualizado correctamente.');
-    }
+    return redirect()->route('engineers.index')
+        ->with('flash.banner', 'Ingeniero actualizado correctamente.');
+}
 }

@@ -87,7 +87,6 @@ Route::middleware([
                     abort(403, 'Acceso restringido a Estructura Global.');
                 }
 
-                // 👇 RECUPERAMOS LA LÓGICA DE ESTADÍSTICAS REALES
                 return Inertia::render('Admin/Dashboard', [
                     'stats' => [
                         'companies' => Team::count(),

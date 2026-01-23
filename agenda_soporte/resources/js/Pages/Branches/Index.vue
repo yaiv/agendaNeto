@@ -17,12 +17,12 @@ const page = usePage();
 const user = computed(() => page.props.auth.user);
 
 // Estado del buscador
-const search = ref(props.filters.search || '');
+const search = ref(props.filters?.search || ''); // 👈 Agregado ?. para evitar null
 
 // Función de búsqueda con debounce
 const performSearch = debounce((value) => {
     const routeName = props.isGlobal ? 'branches.index' : 'regions.branches.index';
-    const routeParams = props.isGlobal ? {} : { region: props.region.id };
+    const routeParams = props.isGlobal ? {} : { region: props.region?.id }; // 👈 Agregado ?.
     
     router.get(
         route(routeName, routeParams),
@@ -46,9 +46,10 @@ const clearSearch = () => {
 
 // Estadísticas calculadas
 const stats = computed(() => {
-    const total = props.branches.total || 0;
-    const withEcoId = props.branches.data.filter(b => b.external_id_eco).length;
-    const withZone = props.branches.data.filter(b => b.zone_name).length;
+    const total = props.branches?.total || 0;
+    const data = props.branches?.data || [];
+    const withEcoId = data.filter(b => b.external_id_eco).length;
+    const withZone = data.filter(b => b.zone_name).length;
     
     return {
         total,
@@ -56,10 +57,22 @@ const stats = computed(() => {
         withZone,
     };
 });
+
+// 🔥 NUEVA FUNCIÓN: Confirmación de eliminación
+const deleteBranch = (branch) => {
+    if (confirm(`¿Estás seguro de eliminar la sucursal "${branch.name}"?`)) {
+        router.delete(route('branches.destroy', branch.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                // Flash message ya viene del controlador
+            },
+        });
+    }
+};
 </script>
 
 <template>
-    <AppLayout :title="isGlobal ? 'Todas las Sucursales' : `Sucursales - ${region.name}`">
+    <AppLayout :title="isGlobal ? 'Todas las Sucursales' : `Sucursales - ${region?.name || 'Cargando...'}`">
         
         <!-- Header -->
         <div class="mb-6 flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:items-center sm:justify-between px-4 lg:px-0">
@@ -73,7 +86,7 @@ const stats = computed(() => {
                         <AppIcon name="arrow-left" class="h-5 w-5" />
                     </Link>
                     <h2 class="text-xl sm:text-2xl font-bold text-[#00408F]">
-                        {{ isGlobal ? 'Directorio Global de Sucursales' : region.name }}
+                        {{ isGlobal ? 'Directorio Global de Sucursales' : (region?.name || 'Cargando...') }}
                     </h2>
                 </div>
                 <p class="text-xs sm:text-sm text-gray-500 ml-7 sm:ml-0">
@@ -86,7 +99,7 @@ const stats = computed(() => {
 
             <!-- Botón Agregar -->
             <Link 
-                :href="route('branches.create', isGlobal ? {} : { region_id: region.id })"
+                :href="route('branches.create', isGlobal ? {} : { region_id: region?.id })"
                 class="inline-flex items-center px-4 py-2 bg-[#00408F] border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-[#FF5501] focus:bg-[#FF5501] active:bg-[#FF5501] focus:outline-none focus:ring-2 focus:ring-[#FF5501] focus:ring-offset-2 transition ease-in-out duration-150"
             >
                 <AppIcon name="plus" class="h-4 w-4 mr-2" />
@@ -150,7 +163,7 @@ const stats = computed(() => {
         </div>
 
         <!-- Estado vacío -->
-        <div v-if="branches.data.length === 0" class="bg-white rounded-lg shadow-sm border border-gray-200 p-8 sm:p-12 text-center mx-4 lg:mx-0">
+        <div v-if="!branches?.data || branches.data.length === 0" class="bg-white rounded-lg shadow-sm border border-gray-200 p-8 sm:p-12 text-center mx-4 lg:mx-0">
             <div class="bg-gray-50 rounded-full h-12 w-12 sm:h-16 sm:w-16 flex items-center justify-center mx-auto mb-4">
                 <AppIcon name="building" class="h-6 w-6 sm:h-8 sm:w-8 text-gray-400" />
             </div>
@@ -173,7 +186,7 @@ const stats = computed(() => {
                 </button>
                 <Link
                     v-else
-                    :href="route('branches.create', isGlobal ? {} : { region_id: region.id })"
+                    :href="route('branches.create', isGlobal ? {} : { region_id: region?.id })"
                     class="inline-flex items-center px-4 py-2 bg-[#00408F] border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-[#FF5501] transition"
                 >
                     <AppIcon name="plus" class="h-4 w-4 mr-2" />
@@ -241,15 +254,13 @@ const stats = computed(() => {
                                         Editar
                                     </Link>
                                     <span class="text-gray-300">|</span>
-                                    <Link 
-                                        :href="route('branches.destroy', branch.id)"
-                                        method="delete"
-                                        as="button"
+                                    <!-- 🔥 FIX: Usar button con @click en lugar de Link con method -->
+                                    <button
+                                        @click="deleteBranch(branch)"
                                         class="text-red-600 hover:text-red-800 font-semibold"
-                                        @click="confirm('¿Estás seguro de eliminar esta sucursal?') || $event.preventDefault()"
                                     >
                                         Eliminar
-                                    </Link>
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -258,7 +269,7 @@ const stats = computed(() => {
             </div>
 
             <!-- Paginación -->
-            <div v-if="branches.links.length > 3" class="bg-gray-50 px-4 py-3 border-t border-gray-200 sm:px-6">
+            <div v-if="branches.links && branches.links.length > 3" class="bg-gray-50 px-4 py-3 border-t border-gray-200 sm:px-6">
                 <div class="flex items-center justify-between">
                     <div class="text-sm text-gray-700">
                         Mostrando <span class="font-medium">{{ branches.from }}</span> a 
@@ -269,7 +280,7 @@ const stats = computed(() => {
                         <Link
                             v-for="(link, index) in branches.links"
                             :key="index"
-                            :href="link.url"
+                            :href="link.url || '#'"
                             :class="[
                                 'px-3 py-2 text-sm font-medium rounded-md',
                                 link.active 
@@ -287,7 +298,7 @@ const stats = computed(() => {
 
         <!-- Tarjetas Mobile/Tablet -->
         <div class="md:hidden space-y-4 px-4">
-            <div v-for="branch in branches.data" :key="branch.id" 
+            <div v-for="branch in branches?.data || []" :key="branch.id" 
                 class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
             >
                 <div class="h-1 bg-[#00408F]"></div>
@@ -333,26 +344,24 @@ const stats = computed(() => {
                             <AppIcon name="edit" class="h-4 w-4 mr-1" />
                             Editar
                         </Link>
-                        <Link 
-                            :href="route('branches.destroy', branch.id)"
-                            method="delete"
-                            as="button"
+                        <!-- 🔥 FIX: Usar button en lugar de Link -->
+                        <button
+                            @click="deleteBranch(branch)"
                             class="flex-1 inline-flex items-center justify-center px-3 py-2 bg-red-50 border border-red-200 rounded-md font-semibold text-xs text-red-700 uppercase tracking-widest shadow-sm hover:bg-red-100 transition"
-                            @click="confirm('¿Eliminar esta sucursal?') || $event.preventDefault()"
                         >
                             <AppIcon name="trash" class="h-4 w-4 mr-1" />
                             Eliminar
-                        </Link>
+                        </button>
                     </div>
                 </div>
             </div>
 
             <!-- Paginación Mobile -->
-            <div v-if="branches.links.length > 3" class="flex items-center justify-center space-x-2 pt-4">
+            <div v-if="branches?.links && branches.links.length > 3" class="flex items-center justify-center space-x-2 pt-4">
                 <Link
                     v-for="(link, index) in branches.links"
                     :key="index"
-                    :href="link.url"
+                    :href="link.url || '#'"
                     :class="[
                         'px-3 py-2 text-sm font-medium rounded-md',
                         link.active 
@@ -367,4 +376,4 @@ const stats = computed(() => {
         </div>
 
     </AppLayout>
-</template>
+</template>x

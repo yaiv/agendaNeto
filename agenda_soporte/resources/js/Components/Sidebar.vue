@@ -54,9 +54,9 @@ const navigation = computed(() => {
     if (role === 'coordinador' || isTeamOwner) {
         return [
             { name: 'Panel Operativo', route: 'dashboard', icon: 'dashboard', active: 'dashboard' },
-            { name: 'Ingenieros', route: 'engineers.index', icon: 'users', active: 'engineers.*' },
-            { name: 'Sucursales', route: 'branches.index', icon: 'briefcase', active: 'branches.*' },
             { name: 'Regiones', route: 'regions.index', icon: 'map', active: 'regions.*' },
+            { name: 'Sucursales', route: 'branches.index', icon: 'briefcase', active: 'branches.*' },
+            { name: 'Ingenieros', route: 'engineers.index', icon: 'users', active: 'engineers.*' },
         ];
     }
 
@@ -70,14 +70,15 @@ const navigation = computed(() => {
 
 <template>
     <div class="h-full flex flex-col bg-[#00408F] text-white shadow-xl overflow-y-auto">
-        <div class="flex items-center justify-center h-16 bg-[#003373] border-b border-white/10 shrink-0">
-            <Link :href="route('dashboard')" class="flex items-center space-x-2">
-                <ApplicationMark class="block h-8 w-auto text-white" />
-                <span class="text-xl font-bold tracking-wider">
-                    CORP<span class="text-[#FF5501]">SYS</span>
-                </span>
-            </Link>
-        </div>
+ <div class="h-16 bg-[#003373] border-b border-white/10 shrink-0 overflow-hidden">
+     <Link :href="route('dashboard')" class="block w-full h-full">
+         <img 
+             src="/img/logo-neto.png" 
+             alt="Logo Neto" 
+             class="w-full h-full object-cover"
+         />
+     </Link>
+ </div>
 
         <nav class="flex-1 px-3 py-6 space-y-1">
             <template v-for="item in navigation" :key="item.name">
