@@ -93,66 +93,67 @@ class BranchController extends Controller
      * LISTADO DE SUCURSALES (Híbrido: Por Región o Global)
      */
     // 1. Hacemos que $region sea opcional (= null)
-    public function index(Request $request, ?Region $region = null)
+   public function index(Request $request, ?Region $region = null)
     {
         $user = Auth::user();
         $search = $request->input('search');
 
         // INICIO DEL QUERY
-        // Cargamos la región y el team para poder mostrar "Sucursal X - Región Y [Empresa Z]"
         $query = Branch::with(['region.team']);
 
-        // ESCENARIO A: VIENE UNA REGIÓN ESPECÍFICA (Ruta: /regions/{id}/branches)
+        // ESCENARIO A: VIENE UNA REGIÓN ESPECÍFICA (/regions/{id}/branches)
         if ($region && $region->exists) {
             Gate::authorize('view', $region);
             $query->where('region_id', $region->id);
+            
+            // 🛡️ RESTRICCIÓN ADICIONAL PARA NIVEL 3: 
+            // Si el ingeniero entra a una región específica, verificar que la tenga asignada.
+            if ($user->global_role === 'ingeniero') {
+                $assignedIds = $user->assignedRegions()->pluck('regions.id')->toArray();
+                if (!in_array($region->id, $assignedIds)) {
+                    abort(403, 'No tienes autorización sobre esta región.');
+                }
+            }
         } 
-        // ESCENARIO B: VISTA GLOBAL (Ruta: /branches)
+        // ESCENARIO B: VISTA GLOBAL (/branches)
         else {
-            // Nivel 1: Admin Global -> Ve TODO (No aplicamos filtro)
+            // Nivel 1: Global -> Ve TODO [cite: 36, 63]
             if ($user->isGlobalAdmin() || in_array($user->global_role, ['gerente', 'supervisor'])) {
-                // Pass (Query limpio)
+                // Sin restricciones adicionales.
             }
-            // Nivel 2: Coordinador -> Ve todo lo de su EQUIPO
-            elseif ($user->id === $user->currentTeam->user_id || $user->global_role === 'coordinador') {
-                $query->whereHas('region', function ($q) use ($user) {
-                    $q->where('team_id', $user->current_team_id);
-                });
+            // Nivel 2: Coordinador -> Solo su equipo (Team) [cite: 45]
+            elseif ($user->global_role === 'coordinador' || $user->ownsTeam($user->currentTeam)) {
+                $query->where('team_id', $user->current_team_id);
             }
-            // Nivel 3: Ingeniero -> Ve solo lo de sus regiones ASIGNADAS
+            // Nivel 3: Ingeniero -> Solo sus TIENDAS asignadas (vía Regiones) [cite: 52, 67]
             else {
-                $query->whereHas('region', function ($q) use ($user) {
-                    $q->whereIn('id', $user->assignedRegions()->pluck('regions.id'));
-                });
-            }
+                    $assignedRegionIds = $user->activeAssignedRegions()->pluck('regions.id');
+                    $query->whereIn('region_id', $assignedRegionIds);
+                 }
         }
 
-        // APLICAMOS BÚSQUEDA (Común para ambos casos)
+        // APLICAMOS BÚSQUEDA
         $branches = $query->when($search, function ($q, $search) {
                 $q->where(function ($subQ) use ($search) {
                     $subQ->where('name', 'like', "%{$search}%")
                          ->orWhere('external_id_eco', 'like', "%{$search}%")
                          ->orWhere('zone_name', 'like', "%{$search}%")
-                         // Búsqueda avanzada: Buscar también por nombre de Región o Compañía
                          ->orWhereHas('region', function($r) use ($search){
-                             $r->where('name', 'like', "%{$search}%")
-                               ->orWhereHas('team', fn($t) => $t->where('name', 'like', "%{$search}%"));
+                             $r->where('name', 'like', "%{$search}%");
                          });
                 });
             })
             ->orderBy('name')
-            ->paginate(10)
+            ->paginate(15)
             ->withQueryString();
 
         return Inertia::render('Branches/Index', [
-            'region' => $region, // Puede ser null
+            'region' => $region,
             'branches' => $branches,
             'filters' => $request->only(['search']),
-            // Flag para que el frontend sepa si mostrar columnas extra
             'isGlobal' => is_null($region), 
         ]);
     }
-
     /**
      * EDICIÓN
      * Reutiliza la lógica de selección de regiones del Create

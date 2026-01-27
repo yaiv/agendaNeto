@@ -30,13 +30,13 @@ const navigation = computed(() => {
         },
         
         { 
-            name: 'Regiones Globales', 
+            name: 'Regiones', 
             route: 'regions.index', 
             icon: 'map', 
             active: 'regions.*' 
         },
         { 
-            name: 'Sucursales', 
+            name: 'Tiendas', 
             route: 'branches.index', 
             icon: 'briefcase', 
             active: 'branches.*' 
@@ -55,7 +55,7 @@ const navigation = computed(() => {
         return [
             { name: 'Panel Operativo', route: 'dashboard', icon: 'dashboard', active: 'dashboard' },
             { name: 'Regiones', route: 'regions.index', icon: 'map', active: 'regions.*' },
-            { name: 'Sucursales', route: 'branches.index', icon: 'briefcase', active: 'branches.*' },
+            { name: 'Tiendas', route: 'branches.index', icon: 'briefcase', active: 'branches.*' },
             { name: 'Ingenieros', route: 'engineers.index', icon: 'users', active: 'engineers.*' },
         ];
     }

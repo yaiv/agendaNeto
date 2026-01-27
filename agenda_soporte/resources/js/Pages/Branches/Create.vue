@@ -35,10 +35,10 @@ const submit = () => {
 </script>
 
 <template>
-    <AppLayout title="Nueva Sucursal">
+    <AppLayout title="Nueva Tienda">
         <template #header>
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Registrar Sucursal Operativa
+                Registrar Tienda Nueva
             </h2>
         </template>
 
@@ -194,7 +194,7 @@ const submit = () => {
                     </SecondaryButton>
 
                     <PrimaryButton :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
-                        Guardar Sucursal
+                        Guardar Tienda
                     </PrimaryButton>
                 </div>
 

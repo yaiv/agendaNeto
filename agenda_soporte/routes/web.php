@@ -7,9 +7,7 @@ use App\Http\Controllers\EngineerController;
 use App\Http\Controllers\Admin\CompanyController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\RegionController;
-use App\Models\Team;   // 👈 Agregado para el Dashboard
-use App\Models\Region; // 👈 Agregado para el Dashboard
-use App\Models\User;   // 👈 Agregado para el Dashboard
+use App\Http\Controllers\DashboardController;
 
 /*
 |--------------------------------------------------------------------------
@@ -37,18 +35,10 @@ Route::middleware([
     'active',
 ])->group(function () {
 
-    // 1. Dashboard Routing Inteligente
-    Route::get('/dashboard', function () {
-        $user = auth()->user();
-        // Si es Nivel 1, lo mandamos a su área exclusiva
-        if ($user->global_role && in_array($user->global_role, ['gerente', 'supervisor'])) {
-            return redirect()->route('admin.dashboard');
-        }
-        // Nivel 2 y 3 ven el Dashboard Operativo
-        return Inertia::render('Dashboard/Index');
-    })->name('dashboard');
+    // ✅ Dashboard Principal - Enrutamiento Inteligente
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-    // 2. Operación Diaria (Ingenieros y Coordinadores)
+    // ✅ Operación Diaria (Ingenieros y Coordinadores)
     Route::resource('engineers', EngineerController::class)
         ->only(['index', 'create', 'store', 'edit', 'update']);
 
@@ -62,43 +52,28 @@ Route::middleware([
     Route::get('/regions/{region}/branches', [BranchController::class, 'index'])
         ->name('regions.branches.index');
 
-    // 👇 ESTO ERA LO QUE TE FALTABA
-    // Sin esto, no funcionan los botones de Crear, Editar ni Eliminar Región
+    // Resource completo de regiones
     Route::resource('regions', RegionController::class);
 
-    // 3. Gestión de Sucursales (Nivel 1 y 2)
+    // ✅ Gestión de Sucursales/Tiendas (Nivel 1 y 2)
     Route::resource('branches', BranchController::class)
         ->only(['index', 'create', 'store', 'edit', 'update', 'destroy']);
 
     /*
     |--------------------------------------------------------------------------
-    | Zona Estructural / Global (Nivel 1 - Gerente/Supervisor)
+    | Zona Administrativa - Estructura Global (Nivel 1)
     |--------------------------------------------------------------------------
-    | Aquí se define la ESTRUCTURA del sistema (Compañías, Configuración Global)
+    | Gerentes y Supervisores: Configuración del sistema completo
     */
     Route::prefix('admin')
-        ->name('admin.') // admin.dashboard, admin.companies.index
+        ->name('admin.')
+        ->middleware('global.admin') // 👈 OPCIONAL: puedes crear un middleware específico
         ->group(function () {
 
-            // Dashboard Administrativo
-            Route::get('/', function () {
-                // Doble check de seguridad
-                if (!in_array(auth()->user()->global_role, ['gerente', 'supervisor'])) {
-                    abort(403, 'Acceso restringido a Estructura Global.');
-                }
+            // ✅ Dashboard Administrativo
+            Route::get('/', [DashboardController::class, 'admin'])->name('dashboard');
 
-                return Inertia::render('Admin/Dashboard', [
-                    'stats' => [
-                        'companies' => Team::count(),
-                        'regions'   => Region::count(),
-                        'engineers' => User::whereNotIn('global_role', ['admin', 'gerente', 'supervisor', 'coordinador'])
-                       ->orWhereNull('global_role')
-                       ->count(),
-                    ]
-                ]);
-            })->name('dashboard');
-
-            // Gestión de Compañías
+            // ✅ Gestión de Compañías
             Route::resource('companies', CompanyController::class);
     });
 });

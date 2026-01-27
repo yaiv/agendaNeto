@@ -72,7 +72,7 @@ const canCreateRegion = computed(() => {
                     </h2>
                     <p class="text-sm text-gray-500 mt-1">
                         {{ isGlobalView 
-                            ? 'Consulta centralizada de todas las divisiones territoriales.' 
+                            ? 'Consulta centralizada de todas las divisiones TI regionales.' 
                             : 'Gestión operativa de tus territorios asignados.' 
                         }}
                     </p>
@@ -93,7 +93,7 @@ const canCreateRegion = computed(() => {
                     </template>
                 </StatCard>
 
-                <StatCard title="Sucursales Cubiertas" :value="totalBranches" color="orange">
+                <StatCard title="Tiendas Cubiertas" :value="totalBranches" color="orange">
                     <template #icon>
                         <AppIcon name="building" class="w-6 h-6" />
                     </template>
@@ -138,7 +138,7 @@ const canCreateRegion = computed(() => {
                                     Compañía
                                 </th>
                                 <th scope="col" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Sucursales
+                                    Tiendas
                                 </th>
                                 <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Acciones
@@ -167,7 +167,7 @@ const canCreateRegion = computed(() => {
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <Link :href="route('regions.branches.index', region.id)" class="text-[#00408F] hover:text-[#002a5e] mr-3 font-semibold">
-                                        Ver Sucursales
+                                        Ver Tiendas
                                     </Link>
                                     <span class="text-gray-300">|</span>
                                     <Link v-if="isGlobalView" :href="route('regions.edit', region.id)" class="text-gray-500 hover:text-gray-700 ml-3">

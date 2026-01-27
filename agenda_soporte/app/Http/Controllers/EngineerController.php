@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Region;
 use App\Models\Team;
+use App\Models\Branch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -101,29 +102,56 @@ class EngineerController extends Controller
     ]);
 }
 
-    public function create(Request $request)
-    {
-        $user = $request->user();
-        $this->authorizeManager($user); // 👈 CANDADO
+public function create(Request $request)
+{
+    $user = $request->user();
+    $this->authorizeManager($user);
 
-        $teams = [];
-        $regions = [];
-        $isGlobalAdmin = $user->isGlobalAdmin();
+    $isGlobalAdmin = $user->isGlobalAdmin();
 
-        if ($isGlobalAdmin) {
-            $teams = Team::where('personal_team', false)->orderBy('name')->get();
-            $regions = Region::orderBy('name')->get(['id', 'name', 'team_id']);
-        } else {
-            $teams = [$user->currentTeam];
-            $regions = Region::where('team_id', $user->current_team_id)->orderBy('name')->get(['id', 'name', 'team_id']);
-        }
-
-        return Inertia::render('Engineers/Create', [
-            'teams' => $teams,
-            'all_regions' => $regions,
-            'is_global_admin' => $isGlobalAdmin
-        ]);
+    // ===============================
+    // EQUIPOS (teams)
+    // ===============================
+    if ($isGlobalAdmin) {
+        // Admin puede elegir cualquier compañía
+        $teams = Team::where('personal_team', false)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    } else {
+        // Coordinador solo su compañía
+        $teams = collect([$user->currentTeam]);
     }
+
+    // ===============================
+    // REGIONES
+    // ===============================
+    if ($isGlobalAdmin) {
+        // Admin ve todas
+        $regions = Region::orderBy('name')
+            ->get(['id', 'name', 'team_id']);
+    } else {
+        // Coordinador solo las suyas
+        $regions = Region::where('team_id', $user->current_team_id)
+            ->orderBy('name')
+            ->get(['id', 'name', 'team_id']);
+    }
+
+    // ===============================
+    // TIENDAS (branches)
+    // ===============================
+    $all_branches = Branch::query()
+        ->when(!$isGlobalAdmin, fn ($q) =>
+            $q->where('team_id', $user->current_team_id)
+        )
+        ->get(['id', 'name', 'region_id', 'external_id_eco']);
+
+    return Inertia::render('Engineers/Create', [
+        'teams' => $teams,
+        'all_regions' => $regions,
+        'all_branches' => $all_branches,
+        'is_global_admin' => $isGlobalAdmin,
+    ]);
+}
 
    public function store(Request $request)
 {
@@ -147,6 +175,7 @@ class EngineerController extends Controller
         'primary_region_id' => ['required', 'exists:regions,id'],
         'support_region_ids' => ['array', 'nullable'],
         'support_region_ids.*' => ['exists:regions,id'],
+        'selected_branch_ids' => ['array', 'nullable'], // Validación de tiendas
     ]);
 
     // 🛡️ VALIDACIÓN: La región primaria debe pertenecer al equipo
@@ -193,13 +222,27 @@ class EngineerController extends Controller
         }
     });
 
+    if (!empty($validated['selected_branch_ids'])) {
+    $branchSyncData = [];
+    foreach ($validated['selected_branch_ids'] as $branchId) {
+        $branch = \App\Models\Branch::find($branchId);
+        $branchSyncData[$branchId] = [
+            'team_id'         => $branch->team_id,
+            'assignment_type' => 'primary',
+            'assigned_at'     => now(),
+            'is_active'       => true,
+        ];
+    }
+    $user->assignedBranches()->sync($branchSyncData);
+}
+
     return redirect()->route('engineers.index')
         ->with('flash.banner', 'Ingeniero creado correctamente.');
 }
 
-  public function edit(Request $request, User $engineer)
-    {
-        // AUTO-CORRECCIÓN: Si el usuario tiene equipo asignado en pivote pero current_team_id es null
+ public function edit(Request $request, User $engineer)
+{
+    // AUTO-CORRECCIÓN: Si el usuario tiene equipo asignado en pivote pero current_team_id es null
     if (is_null($engineer->current_team_id)) {
         $firstTeam = $engineer->teams()->first();
         if ($firstTeam) {
@@ -207,61 +250,84 @@ class EngineerController extends Controller
             $engineer->save(); // Lo arreglamos en BD silenciosamente
         }
     }
-        $currentUser = $request->user();
-        $this->authorizeManager($currentUser);
 
-        // Seguridad estricta para Coordinadores
-        if (!$currentUser->isGlobalAdmin() && $engineer->current_team_id !== $currentUser->current_team_id) {
-            abort(403, 'No tienes permiso para editar a este ingeniero.');
-        }
+    $currentUser = $request->user();
+    $this->authorizeManager($currentUser);
 
-        $engineer->load(['profile', 'assignedRegions']);
-
-        // DATOS PARA LA VISTA
-        $teams = [];
-        $regions = []; // Regiones filtradas (para coordinador)
-        $all_regions = []; // Todas las regiones (para admin)
-
-        if ($currentUser->isGlobalAdmin()) {
-            // Admin: Necesita todos los equipos para poder mover al usuario
-            $teams = Team::where('personal_team', false)->orderBy('name')->get();
-            // Y todas las regiones para el filtro dinámico
-            $all_regions = Region::orderBy('name')->get(['id', 'name', 'team_id']);
-        } else {
-            // Coordinador: Solo ve su equipo y sus regiones
-            $teams = [$currentUser->currentTeam];
-            $regions = Region::where('team_id', $currentUser->current_team_id)
-                ->orderBy('name')
-                ->get(['id', 'name', 'team_id']);
-        }
-
-        // IDs actuales
-        $currentSupportIds = $engineer->assignedRegions
-            ->filter(fn($r) => $r->pivot->assignment_type === 'support')
-            ->pluck('id')
-            ->toArray();
-
-        $currentPrimaryId = $engineer->assignedRegions
-            ->first(fn($r) => $r->pivot->assignment_type === 'primary')?->id;
-
-        return Inertia::render('Engineers/Edit', [
-            'engineer' => [
-                'id' => $engineer->id,
-                'name' => $engineer->name,
-                'email' => $engineer->email,
-                'employee_code' => $engineer->profile?->employee_code,
-                'phone1' => $engineer->profile?->phone1,
-                'status' => $engineer->profile?->status ?? 'active',
-                'current_team_id' => $engineer->current_team_id, // Vital para el select
-                'primary_region_id' => $currentPrimaryId,
-                'support_region_ids' => $currentSupportIds,
-            ],
-            'teams' => $teams,
-            'regions' => $regions,         // Para Coordinador
-            'all_regions' => $all_regions, // Para Admin
-            'is_global_admin' => $currentUser->isGlobalAdmin(),
-        ]);
+    // Seguridad estricta para Coordinadores
+    if (!$currentUser->isGlobalAdmin() && $engineer->current_team_id !== $currentUser->current_team_id) {
+        abort(403, 'No tienes permiso para editar a este ingeniero.');
     }
+
+    // 👇 ACTUALIZADO: Cargar también assignedBranches
+    $engineer->load(['profile', 'assignedRegions', 'assignedBranches']);
+
+    // DATOS PARA LA VISTA
+    $teams = [];
+    $regions = []; // Regiones filtradas (para coordinador)
+    $all_regions = []; // Todas las regiones (para admin)
+
+    if ($currentUser->isGlobalAdmin()) {
+        // Admin: Necesita todos los equipos para poder mover al usuario
+        $teams = Team::where('personal_team', false)->orderBy('name')->get();
+        // Y todas las regiones para el filtro dinámico
+        $all_regions = Region::orderBy('name')->get(['id', 'name', 'team_id']);
+    } else {
+        // Coordinador: Solo ve su equipo y sus regiones
+        $teams = [$currentUser->currentTeam];
+        $regions = Region::where('team_id', $currentUser->current_team_id)
+            ->orderBy('name')
+            ->get(['id', 'name', 'team_id']);
+    }
+
+    // IDs actuales de asignaciones de regiones
+    $currentSupportIds = $engineer->assignedRegions
+        ->filter(fn($r) => $r->pivot->assignment_type === 'support')
+        ->pluck('id')
+        ->toArray();
+
+    $currentPrimaryId = $engineer->assignedRegions
+        ->first(fn($r) => $r->pivot->assignment_type === 'primary')?->id;
+
+    // ========================================
+    // 👇 NUEVA LÓGICA: Asignación de Tiendas
+    // ========================================
+    
+    // 1. Obtener los IDs de todas las regiones vinculadas (Base + Apoyo)
+    $allLinkedRegionIds = $engineer->assignedRegions->pluck('id')->toArray();
+    
+    // 2. Traer todas las TIENDAS que pertenecen a esas regiones
+    // Esto es para que el Coordinador elija cuáles le tocan al ingeniero
+    $availableBranches = \App\Models\Branch::whereIn('region_id', $allLinkedRegionIds)
+        ->orderBy('name')
+        ->get(['id', 'name', 'region_id', 'external_id_eco']);
+    
+    // 3. IDs de las tiendas que YA tiene asignadas actualmente (solo las activas)
+    $currentBranchIds = $engineer->assignedBranches
+        ->where('pivot.esta_activo', true) // 👈 Solo las asignaciones activas
+        ->pluck('id')
+        ->toArray();
+
+    return Inertia::render('Engineers/Edit', [
+        'engineer' => [
+            'id' => $engineer->id,
+            'name' => $engineer->name,
+            'email' => $engineer->email,
+            'employee_code' => $engineer->profile?->employee_code,
+            'phone1' => $engineer->profile?->phone1,
+            'status' => $engineer->profile?->status ?? 'active',
+            'current_team_id' => $engineer->current_team_id, // Vital para el select
+            'primary_region_id' => $currentPrimaryId,
+            'support_region_ids' => $currentSupportIds,
+            'selected_branch_ids' => $currentBranchIds, // 👈 NUEVO: Tiendas seleccionadas
+        ],
+        'teams' => $teams,
+        'regions' => $regions,         // Para Coordinador
+        'all_regions' => $all_regions, // Para Admin
+        'available_branches' => $availableBranches, // 👈 NUEVO: Para el listado de selección
+        'is_global_admin' => $currentUser->isGlobalAdmin(),
+    ]);
+}
 
 public function update(Request $request, User $engineer)
 {
@@ -281,7 +347,9 @@ public function update(Request $request, User $engineer)
         'phone1' => ['required', 'string', 'max:20'],
         'primary_region_id' => ['required', 'exists:regions,id'],
         'support_region_ids' => ['array', 'nullable'],
-        'support_region_ids.*' => ['exists:regions,id'], // ✅ Agregar validación individual
+        'support_region_ids.*' => ['exists:regions,id'],
+        'selected_branch_ids' => ['array', 'nullable'], // 👈 NUEVO: Validación de tiendas
+        'selected_branch_ids.*' => ['exists:branches,id'], // 👈 NUEVO: Validación individual
         'status' => ['required', 'in:active,inactive'],
     ]);
 
@@ -295,6 +363,24 @@ public function update(Request $request, User $engineer)
         ])->withInput();
     }
     // ⚠️ Las regiones de apoyo NO se validan porque pueden ser de otras compañías
+
+    // 🛡️ NUEVA VALIDACIÓN: Las tiendas deben pertenecer a las regiones asignadas
+    if (!empty($validated['selected_branch_ids'])) {
+        $allAssignedRegionIds = array_merge(
+            [$validated['primary_region_id']],
+            $validated['support_region_ids'] ?? []
+        );
+
+        $invalidBranches = \App\Models\Branch::whereIn('id', $validated['selected_branch_ids'])
+            ->whereNotIn('region_id', $allAssignedRegionIds)
+            ->exists();
+
+        if ($invalidBranches) {
+            return back()->withErrors([
+                'selected_branch_ids' => 'Algunas tiendas no pertenecen a las regiones asignadas al ingeniero.'
+            ])->withInput();
+        }
+    }
 
     DB::transaction(function () use ($validated, $engineer, $isGlobalAdmin, $targetTeamId) {
         // 1. Actualizar Datos Básicos
@@ -334,24 +420,56 @@ public function update(Request $request, User $engineer)
         );
 
         // 4. Sincronizar Regiones (OPTIMIZADO con sync)
-        $syncData = [];
+        $regionSyncData = [];
         
         // Región primaria
-        $syncData[$validated['primary_region_id']] = ['assignment_type' => 'primary'];
+        $regionSyncData[$validated['primary_region_id']] = [
+            'assignment_type' => 'primary',
+            'team_id' => $targetTeamId, // 🛡️ Multitenancy
+            'assigned_at' => now(),
+            'is_active' => true,
+        ];
         
         // Regiones de apoyo (pueden ser de cualquier compañía)
         if (!empty($validated['support_region_ids'])) {
             foreach ($validated['support_region_ids'] as $regionId) {
                 if ($regionId != $validated['primary_region_id']) {
-                    $syncData[$regionId] = ['assignment_type' => 'support'];
+                    $supportRegion = Region::find($regionId);
+                    $regionSyncData[$regionId] = [
+                        'assignment_type' => 'support',
+                        'team_id' => $supportRegion->team_id, // 🛡️ Usa el team_id de la región de apoyo
+                        'assigned_at' => now(),
+                        'is_active' => true,
+                    ];
                 }
             }
         }
         
-        $engineer->assignedRegions()->sync($syncData);
+        $engineer->assignedRegions()->sync($regionSyncData);
+
+        // ========================================
+        // 👇 5. SINCRONIZAR TIENDAS ESPECÍFICAS (engineer_branch)
+        // ========================================
+        $branchSyncData = [];
+        
+        if (!empty($validated['selected_branch_ids'])) {
+            foreach ($validated['selected_branch_ids'] as $branchId) {
+                $branch = \App\Models\Branch::find($branchId);
+                
+                $branchSyncData[$branchId] = [
+                    'team_id' => $branch->team_id, // 🛡️ Usa el team_id de la tienda
+                    'assignment_type' => 'primary', // Por defecto primario, puedes ajustar según lógica
+                    'assigned_at' => now(),
+                    'is_active' => true,
+                ];
+            }
+        }
+        
+        // Sincroniza: elimina asignaciones viejas, crea nuevas, mantiene existentes
+        $engineer->assignedBranches()->sync($branchSyncData);
     });
 
     return redirect()->route('engineers.index')
-        ->with('flash.banner', 'Ingeniero actualizado correctamente.');
+        ->with('flash.banner', 'Ingeniero y sus tiendas actualizados correctamente.');
 }
 }

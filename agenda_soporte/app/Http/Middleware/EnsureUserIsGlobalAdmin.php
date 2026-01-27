@@ -9,22 +9,29 @@ use Symfony\Component\HttpFoundation\Response;
 class EnsureUserIsGlobalAdmin
 {
     /**
-     * Verifica que el usuario autenticado sea un Administrador Global (Nivel 1).
-     * Roles permitidos: 'gerente', 'supervisor'
+     * Nivel 1:
+     * - Admin Global
+     * - Gerente
+     * - Supervisor
      */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
 
-        // Si no hay usuario o no es admin global, rechazar
-        if (!$user || !$user->isGlobalAdmin()) {
-            // Si es una petición Inertia (AJAX), devolver 403 JSON
+        if (
+            !$user ||
+            !(
+                $user->isGlobalAdmin() ||
+                in_array($user->global_role, ['gerente', 'supervisor'])
+            )
+        ) {
             if ($request->inertia()) {
-                abort(403, 'Acceso restringido a administradores globales.');
+                abort(403, 'Acceso restringido a administradores.');
             }
 
-            // Si es navegación directa, redirigir al dashboard
-            return redirect()->route('dashboard')->with('error', 'No tienes permisos para acceder a esta sección.');
+            return redirect()
+                ->route('dashboard')
+                ->with('error', 'No tienes permisos para acceder a esta sección.');
         }
 
         return $next($request);

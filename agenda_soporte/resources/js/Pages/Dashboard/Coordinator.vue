@@ -28,7 +28,7 @@ defineProps({ user: Object });
             <StatCard title="Ingenieros Activos" value="12" color="blue">
                 <template #icon><AppIcon name="users" class="w-6 h-6" /></template>
             </StatCard>
-            <StatCard title="Sucursales" value="8" color="orange">
+            <StatCard title="Tiendas" value="8" color="orange">
                 <template #icon><AppIcon name="building" class="w-6 h-6" /></template>
             </StatCard>
             <StatCard title="Regiones" value="2" color="green">
@@ -43,7 +43,7 @@ defineProps({ user: Object });
                     Ver Ingenieros
                 </Link>
                 <Link :href="route('branches.index')" class="inline-flex items-center px-4 py-2 bg-gray-100 border border-transparent rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest hover:bg-gray-200 transition">
-                    Gestionar Sucursales
+                    Gestionar Tiendas
                 </Link>
             </div>
         </div>

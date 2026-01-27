@@ -32,10 +32,10 @@ const submit = () => {
 </script>
 
 <template>
-    <AppLayout title="Editar Sucursal">
+    <AppLayout title="Editar Tienda">
         <template #header>
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                Editar Sucursal: {{ branch.name }}
+                Editar Tienda: {{ branch.name }}
             </h2>
         </template>
 
@@ -64,7 +64,7 @@ const submit = () => {
                             </div>
 
                             <div>
-                                <InputLabel for="name" value="Nombre de Sucursal" />
+                                <InputLabel for="name" value="Nombre de Tienda" />
                                 <TextInput id="name" v-model="form.name" type="text" class="mt-1 block w-full" required />
                                 <InputError :message="form.errors.name" class="mt-2" />
                             </div>

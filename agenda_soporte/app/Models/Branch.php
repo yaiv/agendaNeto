@@ -80,4 +80,12 @@ class Branch extends Model
     {
         return $this->belongsTo(Team::class);
     }
+
+    public function assignedEngineers()
+{
+    return $this->belongsToMany(User::class, 'engineer_branch')
+                ->withPivot(['assignment_type', 'is_active'])
+                ->wherePivot('is_active', true)
+                ->withTimestamps();
+}
 }

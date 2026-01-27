@@ -60,7 +60,7 @@ const stats = computed(() => {
 
 // 🔥 NUEVA FUNCIÓN: Confirmación de eliminación
 const deleteBranch = (branch) => {
-    if (confirm(`¿Estás seguro de eliminar la sucursal "${branch.name}"?`)) {
+    if (confirm(`¿Estás seguro de eliminar la tienda "${branch.name}"?`)) {
         router.delete(route('branches.destroy', branch.id), {
             preserveScroll: true,
             onSuccess: () => {
@@ -72,7 +72,7 @@ const deleteBranch = (branch) => {
 </script>
 
 <template>
-    <AppLayout :title="isGlobal ? 'Todas las Sucursales' : `Sucursales - ${region?.name || 'Cargando...'}`">
+    <AppLayout :title="isGlobal ? 'Todas las Tiendas' : `Tiendas - ${region?.name || 'Cargando...'}`">
         
         <!-- Header -->
         <div class="mb-6 flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:items-center sm:justify-between px-4 lg:px-0">
@@ -86,7 +86,7 @@ const deleteBranch = (branch) => {
                         <AppIcon name="arrow-left" class="h-5 w-5" />
                     </Link>
                     <h2 class="text-xl sm:text-2xl font-bold text-[#00408F]">
-                        {{ isGlobal ? 'Directorio Global de Sucursales' : (region?.name || 'Cargando...') }}
+                        {{ isGlobal ? 'Directorio Global de Tiendas' : (region?.name || 'Cargando...') }}
                     </h2>
                 </div>
                 <p class="text-xs sm:text-sm text-gray-500 ml-7 sm:ml-0">
@@ -103,14 +103,14 @@ const deleteBranch = (branch) => {
                 class="inline-flex items-center px-4 py-2 bg-[#00408F] border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-[#FF5501] focus:bg-[#FF5501] active:bg-[#FF5501] focus:outline-none focus:ring-2 focus:ring-[#FF5501] focus:ring-offset-2 transition ease-in-out duration-150"
             >
                 <AppIcon name="plus" class="h-4 w-4 mr-2" />
-                Nueva Sucursal
+                Nueva Tienda
             </Link>
         </div>
 
         <!-- Tarjetas de Estadísticas -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 px-4 lg:px-0">
             <StatCard
-                title="Total de Sucursales"
+                title="Total de Tiendas"
                 :value="stats.total"
                 color="blue"
             >
@@ -168,12 +168,12 @@ const deleteBranch = (branch) => {
                 <AppIcon name="building" class="h-6 w-6 sm:h-8 sm:w-8 text-gray-400" />
             </div>
             <h3 class="text-base sm:text-lg font-medium text-gray-900">
-                {{ search ? 'No se encontraron resultados' : 'Sin Sucursales Registradas' }}
+                {{ search ? 'No se encontraron resultados' : 'Sin Tiendas Registradas' }}
             </h3>
             <p class="mt-1 text-gray-500 text-xs sm:text-sm max-w-md mx-auto">
                 {{ search 
                     ? 'Intenta con otros términos de búsqueda' 
-                    : 'Comienza agregando tu primera sucursal a esta región' 
+                    : 'Comienza agregando tu primera tienda a esta región' 
                 }}
             </p>
             <div class="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -190,7 +190,7 @@ const deleteBranch = (branch) => {
                     class="inline-flex items-center px-4 py-2 bg-[#00408F] border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-[#FF5501] transition"
                 >
                     <AppIcon name="plus" class="h-4 w-4 mr-2" />
-                    Agregar Primera Sucursal
+                    Agregar Primera Tienda
                 </Link>
             </div>
         </div>
@@ -201,8 +201,11 @@ const deleteBranch = (branch) => {
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
+                           <th class="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                ID ECO
+                            </th>
                             <th class="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Sucursal
+                                Tienda
                             </th>
                             <th v-if="isGlobal" class="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Región
@@ -213,38 +216,57 @@ const deleteBranch = (branch) => {
                             <th class="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Zona
                             </th>
-                            <th class="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                ID ECO
-                            </th>
                             <th class="px-4 lg:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Acciones
                             </th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="branch in branches.data" :key="branch.id" class="hover:bg-blue-50/30 transition">
-                            <td class="px-4 lg:px-6 py-4">
-                                <div class="flex items-center">
-                                    <AppIcon name="building" class="h-5 w-5 text-[#FF5501] mr-3 flex-shrink-0" />
-                                    <span class="text-sm font-medium text-gray-900">{{ branch.name }}</span>
-                                </div>
-                            </td>
-                            <td v-if="isGlobal" class="px-4 lg:px-6 py-4 whitespace-nowrap">
-                                <span class="text-sm text-gray-700">{{ branch.region?.name }}</span>
-                            </td>
-                            <td v-if="isGlobal" class="px-4 lg:px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-[#00408F]">
-                                    {{ branch.region?.team?.name || 'N/A' }}
-                                </span>
-                            </td>
-                            <td class="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {{ branch.zone_name || 'N/A' }}
-                            </td>
+                        <tr 
+                            v-for="branch in branches.data" 
+                            :key="branch.id" 
+                            class="hover:bg-blue-50/30 transition"
+                        >
+                            <!-- ID ECO -->
                             <td class="px-4 lg:px-6 py-4 whitespace-nowrap">
                                 <code class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
                                     {{ branch.external_id_eco || 'N/A' }}
                                 </code>
                             </td>
+                        
+                            <!-- Tienda -->
+                            <td class="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                <div class="flex items-center">
+                                    <AppIcon 
+                                        name="building" 
+                                        class="h-5 w-5 text-[#FF5501] mr-3 flex-shrink-0" 
+                                    />
+                                    <span class="text-sm font-medium text-gray-900">
+                                        {{ branch.name }}
+                                    </span>
+                                </div>
+                            </td>
+                        
+                            <!-- Región -->
+                            <td v-if="isGlobal" class="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                <span class="text-sm text-gray-700">
+                                    {{ branch.region?.name || 'N/A' }}
+                                </span>
+                            </td>
+                        
+                            <!-- Compañía -->
+                            <td v-if="isGlobal" class="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-[#00408F]">
+                                    {{ branch.region?.team?.name || 'N/A' }}
+                                </span>
+                            </td>
+                        
+                            <!-- Zona -->
+                            <td class="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {{ branch.zone_name || 'N/A' }}
+                            </td>
+                        
+                            <!-- Acciones -->
                             <td class="px-4 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 <div class="flex items-center justify-end space-x-2">
                                     <Link 
@@ -253,8 +275,9 @@ const deleteBranch = (branch) => {
                                     >
                                         Editar
                                     </Link>
+                                
                                     <span class="text-gray-300">|</span>
-                                    <!-- 🔥 FIX: Usar button con @click en lugar de Link con method -->
+                                
                                     <button
                                         @click="deleteBranch(branch)"
                                         class="text-red-600 hover:text-red-800 font-semibold"
@@ -265,6 +288,7 @@ const deleteBranch = (branch) => {
                             </td>
                         </tr>
                     </tbody>
+
                 </table>
             </div>
 
