@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
@@ -25,11 +26,6 @@ class User extends Authenticatable
     use Notifiable;
     use TwoFactorAuthenticatable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'name',
         'email',
@@ -39,11 +35,6 @@ class User extends Authenticatable
         'current_team_id',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
@@ -51,20 +42,10 @@ class User extends Authenticatable
         'two_factor_secret',
     ];
 
-    /**
-     * The accessors to append to the model's array form.
-     *
-     * @var array<int, string>
-     */
     protected $appends = [
         'profile_photo_url',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
@@ -73,9 +54,6 @@ class User extends Authenticatable
         ];
     }
 
-    /**
-     * Verifica si el usuario es administrador global
-     */
     public function isGlobalAdmin(): bool
     {
         return in_array($this->global_role, ['supervisor', 'gerente']);
@@ -85,9 +63,6 @@ class User extends Authenticatable
     // RELACIONES
     // ========================================
 
-    /**
-     * Perfil del usuario (datos personales)
-     */
     public function profile()
     {
         return $this->hasOne(Profile::class);
@@ -100,40 +75,78 @@ class User extends Authenticatable
     public function assignedRegions()
     {
         return $this->belongsToMany(Region::class, 'engineer_region', 'user_id', 'region_id')
-        ->withPivot(['assignment_type', 'team_id', 'assigned_at', 'unassigned_at', 'is_active'])
-        ->withTimestamps();
-    }
-
-    /**
-     * ✅ TIENDAS/SUCURSALES ASIGNADAS AL INGENIERO
-     * Tabla pivote: engineer_branch
-     */
-    public function assignedBranches()
-    {
-        return $this->belongsToMany(Branch::class, 'engineer_branch', 'user_id', 'branch_id')
-            ->withPivot(['assignment_type', 'team_id', 'assigned_at', 'unassigned_at', 'is_active', 'notes'])
+            ->withPivot(['assignment_type', 'team_id', 'assigned_at', 'unassigned_at', 'is_active'])
             ->withTimestamps();
     }
 
     /**
-     * Actividades realizadas por el usuario
+     * ✅ SUCURSALES ASIGNADAS AL INGENIERO
+     * Tabla pivote: engineer_branch
+     * Incluye is_external para soporte fuera de la compañía base
      */
+    public function assignedBranches(): BelongsToMany
+    {
+        return $this->belongsToMany(Branch::class, 'engineer_branch', 'user_id', 'branch_id')
+            ->withPivot([
+                'team_id',
+                'assignment_type',
+                'is_external',      // ← NUEVO: Soporte externo
+                'is_active',
+                'assigned_at',
+                'unassigned_at',
+                'notes'
+            ])
+            ->withTimestamps();
+    }
+
+    /**
+     * ✅ SOLO SUCURSALES ACTIVAS
+     */
+public function activeBranches()
+{
+    return $this->assignedBranches()
+        ->wherePivot('is_active', true)
+        ->where('branches.team_id', $this->current_team_id);
+}
+
+    /**
+     * ✅ SUCURSALES PRIMARIAS ACTIVAS
+     */
+    public function primaryBranches()
+{
+    return $this->activeBranches() // Reutilizamos el método base para mantener el filtro de team_id
+        ->wherePivot('assignment_type', 'primary');
+}
+
+    /**
+     * ✅ SUCURSALES DE APOYO ACTIVAS
+     */
+    public function supportBranches()
+    {
+        return $this->assignedBranches()
+            ->wherePivot('assignment_type', 'support');
+    }
+
+    /**
+     * ✅ SUCURSALES EXTERNAS (fuera de la compañía base)
+     */
+    public function externalBranches()
+    {
+        return $this->assignedBranches()
+            ->wherePivot('is_external', true)
+            ->wherePivot('is_active', true);
+    }
+
     public function activities()
     {
         return $this->hasMany(Activity::class, 'user_id');
     }
 
-    /**
-     * Tareas asignadas al usuario
-     */
     public function tasks()
     {
         return $this->hasMany(Task::class, 'assigned_to_user_id');
     }
 
-    /**
-     * Tareas que el usuario ha asignado a otros
-     */
     public function assignedTasks()
     {
         return $this->hasMany(Task::class, 'assigned_by_user_id');
@@ -143,25 +156,16 @@ class User extends Authenticatable
     // MÉTODOS DE AYUDA (SCOPES Y HELPERS)
     // ========================================
 
-    /**
-     * Obtiene solo las regiones activas asignadas
-     */
     public function activeAssignedRegions()
     {
         return $this->assignedRegions()->wherePivot('is_active', true);
     }
 
-    /**
-     * Obtiene solo las tiendas activas asignadas
-     */
     public function activeAssignedBranches()
     {
         return $this->assignedBranches()->wherePivot('is_active', true);
     }
 
-    /**
-     * Verifica si el usuario tiene asignada una región específica
-     */
     public function hasRegion(int $regionId): bool
     {
         return $this->activeAssignedRegions()
@@ -169,9 +173,6 @@ class User extends Authenticatable
             ->exists();
     }
 
-    /**
-     * Verifica si el usuario tiene asignada una tienda específica
-     */
     public function hasBranch(int $branchId): bool
     {
         return $this->activeAssignedBranches()
@@ -179,9 +180,6 @@ class User extends Authenticatable
             ->exists();
     }
 
-    /**
-     * Obtiene la región primaria del ingeniero
-     */
     public function primaryRegion()
     {
         return $this->assignedRegions()
@@ -190,9 +188,6 @@ class User extends Authenticatable
             ->first();
     }
 
-    /**
-     * Obtiene las regiones de apoyo del ingeniero
-     */
     public function supportRegions()
     {
         return $this->assignedRegions()

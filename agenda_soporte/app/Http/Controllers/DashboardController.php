@@ -8,7 +8,6 @@ use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -16,16 +15,25 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
+        // Nivel 1: Admin / Gerente / Supervisor
         if ($this->isAdminLevel($user)) {
             return redirect()->route('admin.dashboard');
         }
 
+        // Nivel 2 y 3: Coordinadores e Ingenieros
         return Inertia::render('Dashboard/Index', [
             'stats' => $this->getStatsForUser($user),
             'userRole' => $user->global_role,
+            // Mapa organizacional solo para ingenieros
+            'organizationMap' => $user->global_role === 'ingeniero' 
+                ? $this->getEngineerOrganizationMap($user) 
+                : null,
         ]);
     }
 
+    /**
+     * Dashboard administrativo global
+     */
     public function admin(Request $request) 
     {
         $user = $request->user();
@@ -49,15 +57,40 @@ class DashboardController extends Controller
         ]);
     }
 
-private function isAdminLevel(User $user): bool
+    /**
+     * FASE 7: Preparación de datos (Agrupamiento jerárquico)
+     * Estructura: Compañía -> Región -> Sucursales
+     * 
+     * Usa los nuevos métodos del modelo User
+     */
+private function getEngineerOrganizationMap(User $user)
 {
-    return $user->isGlobalAdmin()
-        || (
-            $user->global_role &&
-            in_array($user->global_role, ['gerente', 'supervisor'])
-        );
+    // Cargamos activas con sus relaciones jerárquicas
+    return $user->activeBranches()
+        ->with(['region.team']) 
+        ->get()
+        ->groupBy(fn($branch) => $branch->region->team->name ?? 'Sin Compañía')
+        ->map(function ($branchesInTeam) {
+            return $branchesInTeam->groupBy(fn($branch) => $branch->region->name ?? 'Sin Región')
+                ->map(function($branches) {
+                    return $branches->map(fn($branch) => [
+                        'id'              => $branch->id,
+                        'name'            => $branch->name,
+                        'address'         => $branch->address,
+                        'zone_name'       => $branch->zone_name,
+                        'assignment_type' => $branch->pivot->assignment_type,
+                        'is_external'     => (bool)$branch->pivot->is_external,
+                        'assigned_at'     => $branch->pivot->assigned_at,
+                    ]);
+                });
+        });
 }
 
+    private function isAdminLevel(User $user): bool
+    {
+        return $user->isGlobalAdmin() 
+            || ($user->global_role && in_array($user->global_role, ['gerente', 'supervisor']));
+    }
 
     private function getStatsForUser(User $user): array
     {
@@ -74,7 +107,7 @@ private function isAdminLevel(User $user): bool
             'totalTiendas'   => Branch::where('team_id', $teamId)->count(),
             'totalRegiones'  => Region::where('team_id', $teamId)->count(),
             'tiendasActivas' => Branch::where('team_id', $teamId)
-                ->where('status', 'active') 
+                ->where('status', 'active')
                 ->count(),
             'ingenierosAsignados' => $user->currentTeam->users()
                 ->where('global_role', 'ingeniero')
@@ -82,25 +115,27 @@ private function isAdminLevel(User $user): bool
         ];
     }
 
-   private function getEngineerStats(User $user): array
+    /**
+     * ✅ ACTUALIZADO: Usa los nuevos métodos del modelo User
+     * Ya no usa DB::table, aprovecha las relaciones Eloquent
+     */
+  private function getEngineerStats(User $user): array
 {
-    $totalTiendas = DB::table('engineer_branch')
-        ->where('user_id', $user->id)
-        ->where('is_active', true)
-        ->count();
-
-    $totalRegiones = DB::table('engineer_region')
-        ->where('user_id', $user->id)
-        ->where('is_active', true)
-        ->count();
+    // Obtenemos la colección una sola vez para evitar múltiples queries de agregación
+    $activeBranches = $user->activeBranches()->get();
 
     return [
-        'totalTiendas' => $totalTiendas,
-        'totalRegiones' => $totalRegiones,
-
-        // 🔕 Pendientes hasta definir estructura
-        'tareasActivas' => 0,
-        'actividadesHoy' => 0,
+        'totalTiendas'    => $activeBranches->count(),
+        'totalPrimarias'  => $activeBranches->where('pivot.assignment_type', 'primary')->count(),
+        'totalSoporte'    => $activeBranches->where('pivot.assignment_type', 'support')->count(),
+        'totalExternas'   => $activeBranches->where('pivot.is_external', true)->count(),
+        
+        // Usamos la colección cargada para obtener IDs únicos sin volver a la BD
+        'regionesActivas' => $activeBranches->pluck('region_id')->unique()->count(),
+        'companiesActivas'=> $activeBranches->pluck('team_id')->unique()->count(),
+        
+        //'tareasActivas'   => $user->tasks()->where('status', 'active')->count(),
+        //'actividadesHoy'  => $user->activities()->whereDate('created_at', now()->today())->count(),
     ];
 }
 }

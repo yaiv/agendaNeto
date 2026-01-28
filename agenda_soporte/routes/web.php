@@ -77,3 +77,5 @@ Route::middleware([
             Route::resource('companies', CompanyController::class);
     });
 });
+
+

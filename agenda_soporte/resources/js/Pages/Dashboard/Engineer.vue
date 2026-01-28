@@ -1,12 +1,28 @@
 <script setup>
 import AppIcon from '@/Components/AppIcon.vue';
 import StatCard from '@/Components/StatCard.vue';
+import OrganizationBranches from '@/Components/OrganizationBranches.vue';
 
-defineProps({ user: Object });
+
+const props = defineProps({
+    user: { type: Object, required: true },
+    organizationMap: { type: Object, default: () => ({}) },
+    stats: { 
+        type: Object, 
+        default: () => ({
+            totalTiendas: 0,
+            totalPrimarias: 0,
+            totalSoporte: 0,
+            totalExternas: 0
+        }) 
+    },
+});
 </script>
 
 <template>
     <div class="space-y-6">
+
+        <!-- HEADER -->
         <div class="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-500">
             <div class="flex items-center justify-between">
                 <div>
@@ -14,7 +30,10 @@ defineProps({ user: Object });
                         Panel Operativo
                     </h2>
                     <p class="text-sm text-gray-500 mt-1">
-                        Ingeniero de Sitio asignado a: <span class="font-bold text-green-700">{{ user.current_team?.name }}</span>
+                        Ingeniero de Sitio asignado a:
+                        <span class="font-bold text-green-700">
+                            {{ user.current_team?.name }}
+                        </span>
                     </p>
                 </div>
                 <span class="px-3 py-1 text-xs font-bold text-green-800 bg-green-100 rounded-full">
@@ -23,27 +42,44 @@ defineProps({ user: Object });
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <StatCard title="Tickets Asignados" value="0" color="orange">
-                <template #icon><AppIcon name="clipboard" class="w-6 h-6" /></template>
+        <!-- STATS -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <StatCard title="Tiendas Activas" :value="stats?.totalTiendas || 0" color="blue">
+                <template #icon><AppIcon name="store" class="w-6 h-6" /></template>
             </StatCard>
-            <StatCard title="Mi Región" value="Sin Asignar" color="blue">
-                <template #icon><AppIcon name="map" class="w-6 h-6" /></template>
+
+            <StatCard title="Primarias" :value="stats?.totalPrimarias || 0" color="green">
+                <template #icon><AppIcon name="star" class="w-6 h-6" /></template>
+            </StatCard>
+
+            <StatCard title="Soporte" :value="stats?.totalSoporte || 0" color="orange">
+                <template #icon><AppIcon name="tool" class="w-6 h-6" /></template>
+            </StatCard>
+
+            <StatCard title="Externas" :value="stats?.totalExternas || 0" color="purple">
+                <template #icon><AppIcon name="link" class="w-6 h-6" /></template>
             </StatCard>
         </div>
 
-        <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+        <!-- ORGANIZATION MAP -->
+        <OrganizationBranches
+            :organization-map="organizationMap"
+            :stats="stats"
+        />
+
+        <!-- EMPTY STATE -->
+        <div
+            v-if="stats.totalTiendas === 0"
+            class="bg-yellow-50 border-l-4 border-yellow-400 p-4"
+        >
             <div class="flex">
-                <div class="flex-shrink-0">
-                    <AppIcon name="clipboard" class="h-5 w-5 text-yellow-400" />
-                </div>
-                <div class="ml-3">
-                    <p class="text-sm text-yellow-700">
-                        No tienes actividades pendientes para el día de hoy.
-                        Mantente atento a nuevas asignaciones de tu coordinador.
-                    </p>
-                </div>
+                <AppIcon name="clipboard" class="h-5 w-5 text-yellow-400" />
+                <p class="ml-3 text-sm text-yellow-700">
+                    No tienes sucursales asignadas actualmente.
+                    Mantente atento a nuevas asignaciones de tu coordinador.
+                </p>
             </div>
         </div>
+
     </div>
 </template>
