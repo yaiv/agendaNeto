@@ -108,115 +108,129 @@ class ImportOperationalData extends Command
     }
 
 private function processRow(array $record, bool $isDryRun)
-    {
-        // 0. LIMPIEZA DE LLAVES (Quita BOM y espacios invisibles de los headers)
-        // Esto arregla problemas si el CSV viene de Excel con caracteres raros al inicio
-        $record = array_change_key_case($record, CASE_UPPER);
-        
-        // Mapeo seguro usando ?? null para evitar "Undefined index"
-        $companyName     = trim($record['COMPAÑIA'] ?? $record['COMPANIA'] ?? 'SIN ASIGNAR');
-        $coordinatorName = trim($record['CORDINADOR'] ?? $record['COORDINADOR'] ?? 'Admin');
-        $regionName      = trim($record['REGION'] ?? 'REGIÓN GENÉRICA');
-        $branchName      = trim($record['NOMBRE SUCURSAL'] ?? 'Sucursal Genérica');
-        $zoneName        = trim($record['NOMBRE ZONA'] ?? null);
-        $engineerName    = trim($record['INGENIERO'] ?? 'Vacante');
-        
-        // 🛠️ FIX 1: Limpieza Inteligente de Coordenadas
-        $latitude  = $this->cleanCoordinate($record['LATITUD'] ?? null, 'lat');
-        $longitude = $this->cleanCoordinate($record['LONGITUD -'] ?? $record['LONGITUD'] ?? null, 'long');
+{
+    // 0. LIMPIEZA DE LLAVES (Quita BOM y espacios invisibles de los headers)
+    $record = array_change_key_case($record, CASE_UPPER);
+    
+    // Mapeo seguro usando ?? null para evitar "Undefined index"
+    $companyName     = trim($record['COMPAÑIA'] ?? $record['COMPANIA'] ?? 'SIN ASIGNAR');
+    $coordinatorName = trim($record['CORDINADOR'] ?? $record['COORDINADOR'] ?? 'Admin');
+    $regionName      = trim($record['REGION'] ?? 'REGIÓN GENÉRICA');
+    $branchName      = trim($record['NOMBRE SUCURSAL'] ?? 'Sucursal Genérica');
+    $zoneName        = trim($record['NOMBRE ZONA'] ?? null);
+    $engineerName    = trim($record['INGENIERO'] ?? 'Vacante');
+    
+    // 🛠️ FIX 1: Limpieza Inteligente de Coordenadas
+    $latitude  = $this->cleanCoordinate($record['LATITUD'] ?? null, 'lat');
+    $longitude = $this->cleanCoordinate($record['LONGITUD -'] ?? $record['LONGITUD'] ?? null, 'long');
 
-        $ecoId     = trim($record['ECO'] ?? null);
-        $cecoId    = trim($record['CECO'] ?? null);
+    $ecoId     = trim($record['ECO'] ?? null);
+    $cecoId    = trim($record['CECO'] ?? null);
 
-        // Validaciones básicas
-        if (empty($companyName) || empty($regionName) || empty($branchName)) {
-            // Si es simulación, solo advertimos
-            if ($isDryRun) {
-                $this->warn("⚠️ Fila omitida por falta de datos clave (Sucursal: $branchName)");
-                return;
-            }
-            throw new \Exception("Faltan datos obligatorios: COMPAÑIA, REGION o SUCURSAL");
-        }
-
+    // Validaciones básicas
+    if (empty($companyName) || empty($regionName) || empty($branchName)) {
         if ($isDryRun) {
-            // En simulación imprimimos una muestra para que veas si la latitud se arregló
-            if ($this->stats['branches_created'] < 3) {
-                $this->info("🔍 Test Coord: Original: " . ($record['LATITUD']??'N/A') . " -> Fix: $latitude");
-            }
-            $this->stats['branches_created']++; // Contamos como éxito simulado
+            $this->warn("⚠️ Fila omitida por falta de datos clave (Sucursal: $branchName)");
             return;
         }
-
-        // 1. COORDINADOR
-        $coordinator = $this->getOrCreateUser($coordinatorName, 'COORD', 'coordinador');
-        
-        // 2. COMPAÑÍA (TEAM)
-        $team = Team::firstOrCreate(
-            ['name' => $companyName],
-            ['user_id' => $coordinator->id, 'personal_team' => false]
-        );
-        
-        // Asegurar relación Coordinador-Team
-        if (!$team->users()->where('user_id', $coordinator->id)->exists() && $team->user_id !== $coordinator->id) {
-            $team->users()->attach($coordinator, ['role' => 'admin']);
-        }
-
-        // 3. REGIÓN
-        $regionData = ['name' => $regionName, 'team_id' => $team->id];
-        if (Schema::hasColumn('regions', 'status')) $regionData['status'] = 'active';
-        
-        $region = Region::firstOrCreate($regionData);
-
-        // 4. SUCURSAL (FIX 2: Usar updateOrCreate)
-        // Esto garantiza que si la sucursal ya existe, SE ACTUALICEN sus coordenadas y ECOs
-        $branch = Branch::updateOrCreate(
-            [
-                'name' => $branchName,
-                'region_id' => $region->id, // Búsqueda única por nombre y región
-            ],
-            [
-                'team_id' => $team->id,
-                'zone_name' => $zoneName,
-                'external_id_eco' => $ecoId,
-                'external_id_ceco' => $cecoId,
-                'latitude' => $latitude,
-                'longitude' => $longitude,
-                'status' => 'active',
-                // Solo ponemos address si no tiene una ya, o la forzamos
-                'address' => 'Importado desde Sistema Central', 
-            ]
-        );
-        
-        if ($branch->wasRecentlyCreated) {
-            $this->stats['branches_created']++;
-        }
-
-        // 5. INGENIERO
-        $engineerUpper = strtoupper($engineerName);
-        
-        if ($engineerUpper !== 'VACANTE' && !empty($engineerName)) {
-            $engineer = $this->getOrCreateUser($engineerName, 'ENG', 'ingeniero');
-
-            // Agregar al Team
-            if (!$team->users()->where('user_id', $engineer->id)->exists() && $team->user_id !== $engineer->id) {
-                $team->users()->attach($engineer, ['role' => 'member']);
-            }
-
-            // Asignar Región (Usamos syncWithoutDetaching para no borrar otras asignaciones)
-            $engineer->assignedRegions()->syncWithoutDetaching([
-                $region->id => ['assignment_type' => 'primary']
-            ]);
-            
-            // Actualizar asignación de Team
-            if (!$engineer->current_team_id) {
-                $engineer->current_team_id = $team->id;
-                $engineer->save();
-            }
-            $this->stats['assignments_created']++;
-        } else {
-            $this->stats['skipped_vacantes']++;
-        }
+        throw new \Exception("Faltan datos obligatorios: COMPAÑIA, REGION o SUCURSAL");
     }
+
+    if ($isDryRun) {
+        // En simulación imprimimos una muestra para que veas si la latitud se arregló
+        if ($this->stats['branches_created'] < 3) {
+            $this->info("🔍 Test Coord: Original: " . ($record['LATITUD']??'N/A') . " -> Fix: $latitude");
+        }
+        $this->stats['branches_created']++; // Contamos como éxito simulado
+        return;
+    }
+
+    // 1. COORDINADOR (Nivel 2)
+    $coordinator = $this->getOrCreateUser($coordinatorName, 'COORD', 'coordinador');
+    
+    // 2. COMPAÑÍA (TEAM)
+    $team = Team::firstOrCreate(
+        ['name' => $companyName],
+        ['user_id' => $coordinator->id, 'personal_team' => false]
+    );
+    
+    // Asegurar relación Coordinador-Team
+    if (!$team->users()->where('user_id', $coordinator->id)->exists() && $team->user_id !== $coordinator->id) {
+        $team->users()->attach($coordinator, ['role' => 'admin']);
+    }
+
+    // 3. REGIÓN (Estructura)
+    $regionData = ['name' => $regionName, 'team_id' => $team->id];
+    if (Schema::hasColumn('regions', 'status')) {
+        $regionData['status'] = 'active';
+    }
+    
+    $region = Region::firstOrCreate($regionData);
+
+    // 4. SUCURSAL (Punto Operativo) - FIX 2: Usar updateOrCreate
+    // Esto garantiza que si la sucursal ya existe, SE ACTUALICEN sus coordenadas y ECOs
+    $branch = Branch::updateOrCreate(
+        [
+            'name' => $branchName,
+            'region_id' => $region->id, // Búsqueda única por nombre y región
+        ],
+        [
+            'team_id' => $team->id,
+            'zone_name' => $zoneName,
+            'external_id_eco' => $ecoId,
+            'external_id_ceco' => $cecoId,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'status' => 'active',
+            'address' => 'Importado desde Sistema Central', 
+        ]
+    );
+    
+    if ($branch->wasRecentlyCreated) {
+        $this->stats['branches_created']++;
+    }
+
+    // 5. INGENIERO (Nivel 3 - Operativo)
+    $engineerUpper = strtoupper($engineerName);
+    
+    if ($engineerUpper !== 'VACANTE' && !empty($engineerName)) {
+        $engineer = $this->getOrCreateUser($engineerName, 'ENG', 'ingeniero');
+
+        // Agregar al Team
+        if (!$team->users()->where('user_id', $engineer->id)->exists() && $team->user_id !== $engineer->id) {
+            $team->users()->attach($engineer, ['role' => 'member']);
+        }
+
+        // ✅ ASIGNACIÓN A SUCURSAL (Pivote engineer_branch)
+        // syncWithoutDetaching previene duplicados pero respeta el historial
+        $engineer->assignedBranches()->syncWithoutDetaching([
+            $branch->id => [
+                'team_id'         => $team->id,
+                'assignment_type' => 'primary',      // Tipo de asignación
+                'is_external'     => false,          // No es soporte externo
+                'is_active'       => true,           // Asignación activa
+                'assigned_at'     => now(),          // Fecha de asignación
+                'notes'           => 'Importado automáticamente desde CSV',
+            ]
+        ]);
+
+        // ✅ ASIGNACIÓN A REGIÓN (Para filtrado jerárquico rápido)
+        // Esto se mantiene para consultas de nivel regional
+        $engineer->assignedRegions()->syncWithoutDetaching([
+            $region->id => ['assignment_type' => 'primary']
+        ]);
+        
+        // Actualizar asignación de Team (Jetstream)
+        if (!$engineer->current_team_id) {
+            $engineer->current_team_id = $team->id;
+            $engineer->save();
+        }
+
+        $this->stats['assignments_created']++;
+    } else {
+        $this->stats['skipped_vacantes']++;
+    }
+}
 
     /**
      * 🧠 Lógica heurística para reparar coordenadas rotas

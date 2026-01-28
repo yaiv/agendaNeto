@@ -18,6 +18,7 @@ return new class extends Migration
             
             // Atributos de Asignación [cite: 66, 69]
             $table->string('assignment_type')->default('primary'); // primary, support, temporary
+            $table->boolean('is_external')->default(false);
             $table->date('assigned_at');
             $table->date('unassigned_at')->nullable();
             $table->boolean('is_active')->default(true);
