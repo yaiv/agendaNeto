@@ -16,8 +16,8 @@ use App\Models\Profile;
 
 class ImportOperationalData extends Command
 {
-    protected $signature = 'import:neto-data {file : El nombre del archivo en storage/app} {--dry-run : Simular sin guardar}';
-    protected $description = 'Importa datos masivos desde CSV (Semana 2)';
+    protected $signature = 'import:operational-data {file} {--dry-run}';
+    protected $description = 'Importa datos masivos desde CSV (Estructura y Operación)';
 
     private $stats = [
         'teams_created' => 0,

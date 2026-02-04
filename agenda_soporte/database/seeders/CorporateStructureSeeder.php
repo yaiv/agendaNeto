@@ -15,12 +15,12 @@ use League\Csv\Reader;
 
 class CorporateStructureSeeder extends Seeder
 {
-    private $credentials = []; 
+    private $credentials = [];
     private $stats = [
-        'companies' => 0,
-        'regions' => 0,
-        'branches' => 0,
-        'engineers' => 0,
+        'companies'   => 0,
+        'regions'     => 0,
+        'branches'    => 0,
+        'engineers'   => 0,
         'assignments' => 0,
     ];
 
@@ -33,7 +33,7 @@ class CorporateStructureSeeder extends Seeder
             $this->command->info('👑 Gestionando Nivel 1 (Gerencia Global)...');
             $this->manageLevel1();
 
-            $this->command->info('🏗️  Construyendo Estructura y Operación (Niveles 2 y 3)...');
+            $this->command->info('🏗️  Construyendo Estructura (CSV)...');
             $this->buildStructureFromCSV();
         });
 
@@ -41,293 +41,214 @@ class CorporateStructureSeeder extends Seeder
         $this->displayStats();
     }
 
+    /* ============================================================
+     | NIVEL 1 – GERENCIA GLOBAL
+     * ============================================================*/
     private function manageLevel1()
     {
-        // 0. CREAR/OBTENER TEAM GLOBAL (Primero de todo)
         $globalTeam = $this->ensureGlobalTeam();
 
-        // 1. NETO (El Intocable)
-        $netoEmail = 'neto@global.com';
-        $neto = User::where('email', $netoEmail)->first();
-        
-        if (!$neto) {
-            $neto = User::create([
-                'name' => 'Neto Admin',
-                'email' => $netoEmail,
-                'password' => Hash::make('password'),
-                'global_role' => 'gerente',
-            ]);
-            $this->createProfile($neto, 'ADM-001');
-            $this->credentials[] = [
-                'Usuario' => 'Neto Admin', 
-                'Email' => $netoEmail, 
-                'Password' => 'password', 
-                'Rol' => 'Gerente Global'
-            ];
-            $this->command->info("   ✅ Creado: $netoEmail");
-        } else {
-            $this->command->info("   ⏭️  Omitido (Ya existe): $netoEmail");
-        }
-        
-        // Asignar a Team Global
-        $this->assignToGlobalTeam($neto, $globalTeam);
-
-        // 2. DANIEL VAZQUEZ CARRALES
-        $danielEmail = 'daniel.vazquez@global.com';
-        $daniel = User::firstOrCreate(
-            ['email' => $danielEmail],
+        // NETO
+        $neto = User::firstOrCreate(
+            ['email' => 'neto@global.com'],
             [
-                'name' => 'DANIEL VAZQUEZ CARRALES',
-                'password' => Hash::make('password'),
+                'name'        => 'Neto Admin',
+                'password'    => Hash::make('password'),
                 'global_role' => 'gerente',
             ]
         );
-        
+
+        if ($neto->global_role !== 'gerente') {
+            $neto->updateQuietly(['global_role' => 'gerente']);
+        }
+
+        $this->createProfile($neto, 'ADM');
+        $this->assignToGlobalTeam($neto, $globalTeam);
+
+        // DANIEL
+        $daniel = User::firstOrCreate(
+            ['email' => 'daniel.vazquez@global.com'],
+            [
+                'name'        => 'DANIEL VAZQUEZ CARRALES',
+                'password'    => Hash::make('password'),
+                'global_role' => 'gerente',
+            ]
+        );
+
         if ($daniel->global_role !== 'gerente') {
-            $daniel->update(['global_role' => 'gerente']);
+            $daniel->updateQuietly(['global_role' => 'gerente']);
         }
-        
-        $this->createProfile($daniel, 'ADM-002');
-        
-        if ($daniel->wasRecentlyCreated) {
-            $this->credentials[] = [
-                'Usuario' => 'Daniel Vazquez Carrales', 
-                'Email' => $danielEmail, 
-                'Password' => 'password', 
-                'Rol' => 'Gerente Global'
-            ];
-        }
-        
-        // Asignar a Team Global
+
+        $this->createProfile($daniel, 'ADM');
         $this->assignToGlobalTeam($daniel, $globalTeam);
-        
-        $this->command->info("   ✅ Verificado: Daniel Vazquez Carrales (Gerente)");
     }
 
-    /**
-     * Crea o recupera el Team Global
-     */
-    private function ensureGlobalTeam()
+    private function ensureGlobalTeam(): Team
     {
-        $globalTeam = Team::firstOrCreate(
+        return Team::firstOrCreate(
             ['name' => 'Global'],
             [
-                'user_id' => 1, // Temporalmente, lo actualizaremos después
+                'user_id'       => 1,
                 'personal_team' => false,
             ]
         );
-
-        if ($globalTeam->wasRecentlyCreated) {
-            $this->command->info("   🌍 Team Global creado");
-        } else {
-            $this->command->info("   🌍 Team Global ya existe");
-        }
-
-        return $globalTeam;
     }
 
-    /**
-     * Asigna un gerente al Team Global
-     */
-    private function assignToGlobalTeam($user, $globalTeam)
+    private function assignToGlobalTeam(User $user, Team $team): void
     {
-        // Asegurar que esté en el team
-        if (!$globalTeam->users()->where('user_id', $user->id)->exists()) {
-            $globalTeam->users()->attach($user, ['role' => 'admin']);
-            $this->command->info("      → {$user->name} agregado a Team Global");
+        if (!$team->users()->where('user_id', $user->id)->exists()) {
+            $team->users()->attach($user, ['role' => 'admin']);
         }
 
-        // Asignar como current_team si no tiene uno
         if (!$user->current_team_id) {
-            $user->current_team_id = $globalTeam->id;
-            $user->saveQuietly();
-            $this->command->info("      → current_team_id = Global ({$globalTeam->id})");
+            $user->updateQuietly(['current_team_id' => $team->id]);
         }
 
-        // Actualizar owner del team si es Neto
-        if ($user->email === 'neto@global.com' && $globalTeam->user_id !== $user->id) {
-            $globalTeam->user_id = $user->id;
-            $globalTeam->saveQuietly();
-            $this->command->info("      → Neto asignado como owner del Team Global");
+        if ($user->email === 'neto@global.com' && $team->user_id !== $user->id) {
+            $team->updateQuietly(['user_id' => $user->id]);
         }
     }
 
+    /* ============================================================
+     | CSV → ESTRUCTURA
+     * ============================================================*/
     private function buildStructureFromCSV()
     {
         $path = storage_path('app/NetoSemana2.csv');
 
         if (!file_exists($path)) {
-            $this->command->error("❌ Error: No se encontró el archivo en $path");
+            $this->command->error("❌ CSV no encontrado: $path");
             return;
         }
 
         $csv = Reader::createFromPath($path, 'r');
         $csv->setHeaderOffset(0);
-        
+
         $structure = [];
 
-        // 🔄 PASO 1: Agrupar datos por jerarquía Compañía -> Región -> Sucursal
         foreach ($csv->getRecords() as $record) {
-            $record = array_change_key_case($record, CASE_UPPER);
+            $r = array_change_key_case($record, CASE_UPPER);
 
-            $companyName     = strtoupper(trim($record['COMPAÑIA'] ?? $record['COMPANIA'] ?? $record['EMPRESA'] ?? ''));
-            $coordinatorName = strtoupper(trim($record['CORDINADOR'] ?? $record['COORDINADOR'] ?? ''));
-            $regionName      = strtoupper(trim($record['REGION'] ?? $record['ZONA'] ?? ''));
-            $branchName      = strtoupper(trim($record['NOMBRE SUCURSAL'] ?? $record['SUCURSAL'] ?? ''));
-            $engineerName    = strtoupper(trim($record['INGENIERO'] ?? ''));
+            $company     = strtoupper(trim($r['COMPAÑIA'] ?? ''));
+            $coordinator = strtoupper(trim($r['CORDINADOR'] ?? $r['COORDINADOR'] ?? ''));
+            $region      = strtoupper(trim($r['REGION'] ?? ''));
+            $branch      = strtoupper(trim($r['NOMBRE SUCURSAL'] ?? ''));
+            $engineer    = strtoupper(trim($r['INGENIERO'] ?? ''));
 
-            if (empty($companyName) || empty($coordinatorName) || empty($regionName)) {
+            if (!$company || !$coordinator || !$region) {
                 continue;
             }
 
-            // Si no hay nombre de sucursal, crear uno genérico basado en la región
-            if (empty($branchName)) {
-                $branchName = "SUCURSAL $regionName";
-            }
+            $branch = $branch ?: "SUCURSAL $region";
 
-            $structure[$companyName]['coordinator'] = $coordinatorName;
-            $structure[$companyName]['regions'][$regionName]['branches'][$branchName]['engineers'][] = $engineerName;
+            $structure[$company]['coordinator'] = $coordinator;
+            $structure[$company]['regions'][$region]['branches'][$branch]['engineers'][] = $engineer;
         }
 
-        // 🔄 PASO 2: Procesar cada compañía
-        foreach ($structure as $companyName => $data) {
-            $this->processCompany($companyName, $data['coordinator'], $data['regions']);
+        foreach ($structure as $company => $data) {
+            $this->processCompany($company, $data['coordinator'], $data['regions']);
         }
     }
 
-    private function processCompany($companyName, $coordinatorName, $regions)
+    /* ============================================================
+     | COMPAÑÍA → TEAM
+     * ============================================================*/
+    private function processCompany(string $company, string $coordinatorName, array $regions)
     {
-        $this->command->info("   🏢 Procesando: $companyName ($coordinatorName)");
+        $this->command->info("🏢 $company");
 
-        // 1. COORDINADOR (Nivel 2)
+        // COORDINADOR (OWNER DEL TEAM)
         $coordinator = $this->getOrCreateUser($coordinatorName, 'COORD', 'coordinador');
-        
-        // 2. COMPAÑÍA (TEAM)
+
+        // 🔐 FORZAR ROL GLOBAL
+        if ($coordinator->global_role !== 'coordinador') {
+            $coordinator->updateQuietly(['global_role' => 'coordinador']);
+        }
+
         $team = Team::updateOrCreate(
-            ['name' => $companyName],
+            ['name' => $company],
             [
-                'user_id' => $coordinator->id,
+                'user_id'       => $coordinator->id,
                 'personal_team' => false,
             ]
         );
-        
-        if ($team->wasRecentlyCreated) {
-            $this->stats['companies']++;
-        }
-        
-        // Asegurar que el coordinador esté en el team como admin
+
         if (!$team->users()->where('user_id', $coordinator->id)->exists()) {
             $team->users()->attach($coordinator, ['role' => 'admin']);
         }
-        
-        // Asignar current_team al coordinador
-        if ($coordinator->current_team_id !== $team->id) {
-            $coordinator->current_team_id = $team->id;
-            $coordinator->saveQuietly();
-        }
 
-        // 3. REGIONES, SUCURSALES E INGENIEROS
+        $coordinator->updateQuietly(['current_team_id' => $team->id]);
+
         foreach ($regions as $regionName => $regionData) {
-            // 3.1 Crear Región (Estructura)
             $region = Region::firstOrCreate(
                 ['team_id' => $team->id, 'name' => $regionName],
                 ['status' => 'active']
             );
-            
-            if ($region->wasRecentlyCreated) {
-                $this->stats['regions']++;
-            }
 
-            // 3.2 Procesar cada Sucursal dentro de la Región
             foreach ($regionData['branches'] as $branchName => $branchData) {
-                // Crear Sucursal (Punto Operativo)
                 $branch = Branch::firstOrCreate(
+                    ['region_id' => $region->id, 'name' => $branchName],
                     [
-                        'name' => $branchName, 
-                        'region_id' => $region->id
-                    ],
-                    [
-                        'team_id' => $team->id, 
-                        'status' => 'active',
-                        'address' => 'Por definir - Seeder',
+                        'team_id' => $team->id,
+                        'status'  => 'active',
+                        'address' => 'Seeder',
                     ]
                 );
-                
-                if ($branch->wasRecentlyCreated) {
-                    $this->stats['branches']++;
-                }
 
-                // 3.3 Procesar Ingenieros de la Sucursal
-                $uniqueEngineers = array_unique(array_filter($branchData['engineers']));
-                
-                foreach ($uniqueEngineers as $engName) {
-                    if (empty($engName) || strtoupper($engName) === 'VACANTE') {
+                foreach (array_unique($branchData['engineers']) as $engName) {
+                    if (!$engName || $engName === 'VACANTE') {
                         continue;
                     }
 
                     $engineer = $this->getOrCreateUser($engName, 'ENG', 'ingeniero');
-                    
-                    if ($engineer->wasRecentlyCreated) {
-                        $this->stats['engineers']++;
+
+                    // 🔐 FORZAR ROL GLOBAL
+                    if ($engineer->global_role !== 'ingeniero') {
+                        $engineer->updateQuietly(['global_role' => 'ingeniero']);
                     }
 
-                    // Asegurar que el ingeniero esté en el Team
                     if (!$team->users()->where('user_id', $engineer->id)->exists()) {
                         $team->users()->attach($engineer, ['role' => 'member']);
                     }
 
-                    // ✅ CRÍTICO: VINCULACIÓN DIRECTA A SUCURSAL
-                    // Esto alimenta el Dashboard Operativo (Nivel 3)
                     $engineer->assignedBranches()->syncWithoutDetaching([
                         $branch->id => [
                             'team_id'         => $team->id,
-                            'assignment_type' => 'primary',      // Ingeniero primario
-                            'is_external'     => false,          // No es soporte externo
-                            'is_active'       => true,           // Asignación activa
-                            'assigned_at'     => now(),          // Fecha de asignación
-                            'notes'           => 'Generado por CorporateStructureSeeder',
+                            'assignment_type' => 'primary',
+                            'is_active'       => true,
+                            'assigned_at'     => now(),
                         ]
                     ]);
-                    
-                    $this->stats['assignments']++;
 
-                    // ✅ OPCIONAL: VINCULACIÓN A REGIÓN
-                    // Útil para filtros jerárquicos rápidos
-                    $engineer->assignedRegions()->syncWithoutDetaching([
-                        $region->id => ['assignment_type' => 'primary']
-                    ]);
-
-                    // Asignar current_team si no tiene
                     if (!$engineer->current_team_id) {
-                        $engineer->current_team_id = $team->id;
-                        $engineer->saveQuietly();
+                        $engineer->updateQuietly(['current_team_id' => $team->id]);
                     }
+
+                    $this->stats['assignments']++;
                 }
             }
         }
     }
 
-    private function getOrCreateUser($name, $prefix, $role = null)
+    /* ============================================================
+     | USUARIOS
+     * ============================================================*/
+    private function getOrCreateUser(string $name, string $prefix, string $role): User
     {
         $email = Str::slug($name, '.') . '@corporativo.com';
 
         $user = User::firstOrCreate(
             ['email' => $email],
             [
-                'name' => $name,
-                'password' => Hash::make('password'),
-                'global_role' => null
+                'name'        => $name,
+                'password'    => Hash::make('password'),
+                'global_role' => $role,
             ]
         );
 
-        // Registrar credenciales si es nuevo
-        if ($user->wasRecentlyCreated) {
-            $this->credentials[] = [
-                'Usuario' => $name,
-                'Email' => $email,
-                'Password' => 'password',
-                'Rol' => ucfirst($role ?? 'usuario')
-            ];
+        // 🔐 BLINDAJE TOTAL
+        if ($user->global_role !== $role) {
+            $user->updateQuietly(['global_role' => $role]);
         }
 
         $this->createProfile($user, $prefix);
@@ -335,14 +256,14 @@ class CorporateStructureSeeder extends Seeder
         return $user;
     }
 
-    private function createProfile($user, $prefix)
+    private function createProfile(User $user, string $prefix): void
     {
         if (!$user->profile) {
             Profile::create([
-                'user_id' => $user->id,
+                'user_id'       => $user->id,
                 'employee_code' => $prefix . '-' . str_pad($user->id, 4, '0', STR_PAD_LEFT),
                 'phone1' => '555-0000',
-                'status' => 'active'
+                'status'        => 'active',
             ]);
         }
     }
